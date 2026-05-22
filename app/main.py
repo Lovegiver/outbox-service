@@ -1,3 +1,4 @@
+from uuid import UUID
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -46,3 +47,23 @@ def receive_event(
         status="received",
         event=event,
     )
+
+@app.post("/events/{event_id}/validate")
+def validate_event(
+        event_id: UUID,
+        service: EventService = Depends(get_event_service)
+):
+    try:
+        event = service.validate_event(event_id)
+        return {
+            "status": "validated",
+            "event_id": event.event_id,
+            "event_status": event.status,
+        }
+
+    except SQLAlchemyError as exc:
+        service.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to validate event"
+        ) from exc
