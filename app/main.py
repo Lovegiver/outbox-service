@@ -12,8 +12,6 @@ app = FastAPI(
     description="Event routing and delivery service",
 )
 
-Base.metadata.create_all(bind=engine)
-
 @app.get("/health")
 def health():
     return {
