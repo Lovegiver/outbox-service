@@ -1,5 +1,6 @@
 import httpx
 
+from app.core.delivery_status import DeliveryStatus
 from app.models import Event, EventDelivery
 
 
@@ -35,7 +36,7 @@ class DeliveryService:
 
         response.raise_for_status()
 
-        delivery.status = "DELIVERED"
+        delivery.status = DeliveryStatus.DELIVERED
         delivery.attempt_count += 1
         delivery.last_error = None
 

@@ -1,8 +1,10 @@
 from datetime import datetime, timezone
 
+from app.core.delivery_status import DeliveryStatus
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core import delivery_status
 from app.database import Base
 
 
@@ -38,7 +40,7 @@ class EventDelivery(Base):
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="PENDING",
+        default=DeliveryStatus.PENDING,
     )
 
     attempt_count: Mapped[int] = mapped_column(

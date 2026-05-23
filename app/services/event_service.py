@@ -1,4 +1,6 @@
 from uuid import UUID
+
+from app.core.delivery_status import DeliveryStatus
 from jsonschema import ValidationError
 from fastapi import HTTPException
 
@@ -110,10 +112,10 @@ class EventService:
         for destination in destinations:
             delivery = EventDelivery(
                 event_id=event.id,
-                destination_name=destination["name"],
-                destination_type=destination["type"],
-                destination_url=destination.get("url"),
-                status="PENDING",
+                destination_name=destination.name,
+                destination_type=destination.type,
+                destination_url=destination.url,
+                status=DeliveryStatus.PENDING,
             )
             self.repository.add_delivery(delivery)
 
@@ -138,7 +140,7 @@ class EventService:
 
         deliveries = self.repository.find_deliveries_by_event_id_and_status(
             event.id,
-            "PENDING",
+            DeliveryStatus.PENDING,
         )
 
         if not deliveries:
@@ -156,11 +158,11 @@ class EventService:
             try:
                 self.delivery_service.deliver(event, delivery)
             except Exception as exc:
-                delivery.status = "FAILED"
+                delivery.status = DeliveryStatus.FAILED
                 delivery.attempt_count += 1
                 delivery.last_error = str(exc)
 
-        if all(delivery.status == "DELIVERED" for delivery in deliveries):
+        if all(delivery.status == DeliveryStatus.DELIVERED for delivery in deliveries):
             event.status = EventStatus.DELIVERED
         else:
             event.status = EventStatus.FAILED
@@ -185,7 +187,7 @@ class EventService:
 
         deliveries = self.repository.find_deliveries_by_event_id_and_status(
             event.id,
-            "FAILED",
+            DeliveryStatus.FAILED,
         )
 
         if not deliveries:
@@ -203,11 +205,11 @@ class EventService:
             try:
                 self.delivery_service.deliver(event, delivery)
             except Exception as exc:
-                delivery.status = "FAILED"
+                delivery.status = DeliveryStatus.FAILED
                 delivery.attempt_count += 1
                 delivery.last_error = str(exc)
 
-        if all(delivery.status == "DELIVERED" for delivery in deliveries):
+        if all(delivery.status == DeliveryStatus.DELIVERED for delivery in deliveries):
             event.status = EventStatus.DELIVERED
         else:
             event.status = EventStatus.FAILED
@@ -228,7 +230,7 @@ class EventService:
 
         failed_deliveries = self.repository.find_deliveries_by_event_id_and_status(
             event.id,
-            "FAILED",
+            DeliveryStatus.FAILED,
         )
 
         exhausted_deliveries = [
@@ -244,7 +246,7 @@ class EventService:
             )
 
         for delivery in exhausted_deliveries:
-            delivery.status = "DEAD_LETTER"
+            delivery.status = DeliveryStatus.DEAD_LETTER
             delivery.last_error = (
                     delivery.last_error
                     or f"Max attempts reached: {max_attempts}"
@@ -289,7 +291,7 @@ class EventService:
         for event in failed_events:
             failed_deliveries = self.repository.find_deliveries_by_event_id_and_status(
                 event.id,
-                "FAILED",
+                DeliveryStatus.FAILED,
             )
 
             exhausted = any(

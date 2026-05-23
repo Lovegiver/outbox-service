@@ -1,2 +1,5 @@
 delivery:
   max_attempts: 3
+
+worker:
+  interval_seconds: 10

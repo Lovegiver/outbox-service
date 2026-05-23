@@ -1,16 +1,25 @@
 from uuid import UUID
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from contextlib import asynccontextmanager
 
 from app.database import Base, engine
 from app.dependencies import get_event_service
 from app.schemas.event_schema import EventIn, EventReceived
 from app.services.event_service import EventService
+from app.worker import start_worker, stop_worker
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_worker()
+    yield
+    stop_worker()
 
 app = FastAPI(
     title="Outbox Service",
     version="0.1.0",
     description="Event routing and delivery service",
+    lifespan=lifespan,
 )
 
 @app.get("/health")

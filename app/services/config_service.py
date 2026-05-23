@@ -18,3 +18,10 @@ class ConfigService:
             .get("delivery", {})
             .get("max_attempts", 3)
         )
+
+    def get_worker_interval_seconds(self) -> int:
+        return int(
+            self.config
+            .get("worker", {})
+            .get("interval_seconds", 10)
+        )

@@ -1,6 +1,8 @@
 from pathlib import Path
-
 import yaml
+
+from app.schemas.routing_schema import DestinationConfig
+from app.schemas.routing_schema import RoutingConfig
 
 
 class RoutingService:
@@ -8,7 +10,7 @@ class RoutingService:
     def get_destinations(
             self,
             project: str
-    ) -> list[dict]:
+    ) -> list[DestinationConfig]:
 
         route_file = (
             Path("routes")
@@ -23,4 +25,6 @@ class RoutingService:
         with open(route_file, encoding="utf-8") as file:
             config = yaml.safe_load(file)
 
-        return config["destinations"]
+        routing = RoutingConfig.model_validate(config)
+
+        return routing.destinations
