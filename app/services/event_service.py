@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from app.core.event_status import EventStatus
 from app.models import Event, EventDelivery
 from app.repositories.event_repository import EventRepository
+from app.services.config_service import ConfigService
 from app.services.delivery_service import DeliveryService
 from app.services.routing_service import RoutingService
 from app.services.schema_validation_service import SchemaValidationService
@@ -16,11 +17,13 @@ class EventService:
             schema_validator: SchemaValidationService,
             routing_service: RoutingService,
             delivery_service: DeliveryService,
+            config_service: ConfigService,
     ):
         self.repository = repository
         self.schema_validator = schema_validator
         self.routing_service = routing_service
         self.delivery_service = delivery_service
+        self.config_service = config_service
 
     def receive_event(self, event_in) -> Event:
         event = Event(
@@ -144,6 +147,11 @@ class EventService:
                 detail="No pending delivery found"
             )
 
+        max_attempts = self.config_service.get_max_delivery_attempts()
+
+        if any(delivery.attempt_count >= max_attempts for delivery in deliveries):
+            return self.mark_exhausted_deliveries_as_dead_letter(event_id)
+
         for delivery in deliveries:
             try:
                 self.delivery_service.deliver(event, delivery)
@@ -186,6 +194,11 @@ class EventService:
                 detail="No failed delivery found"
             )
 
+        max_attempts = self.config_service.get_max_delivery_attempts()
+
+        if any(delivery.attempt_count >= max_attempts for delivery in deliveries):
+            return self.mark_exhausted_deliveries_as_dead_letter(event_id)
+
         for delivery in deliveries:
             try:
                 self.delivery_service.deliver(event, delivery)
@@ -202,3 +215,102 @@ class EventService:
         self.repository.commit()
         return event
 
+    def mark_exhausted_deliveries_as_dead_letter(self, event_id: UUID) -> Event:
+        event = self.repository.find_by_event_id(event_id)
+
+        if event is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Event not found"
+            )
+
+        max_attempts = self.config_service.get_max_delivery_attempts()
+
+        failed_deliveries = self.repository.find_deliveries_by_event_id_and_status(
+            event.id,
+            "FAILED",
+        )
+
+        exhausted_deliveries = [
+            delivery
+            for delivery in failed_deliveries
+            if delivery.attempt_count >= max_attempts
+        ]
+
+        if not exhausted_deliveries:
+            raise HTTPException(
+                status_code=409,
+                detail="No exhausted delivery found"
+            )
+
+        for delivery in exhausted_deliveries:
+            delivery.status = "DEAD_LETTER"
+            delivery.last_error = (
+                    delivery.last_error
+                    or f"Max attempts reached: {max_attempts}"
+            )
+
+        event.status = EventStatus.DEAD_LETTER
+
+        self.repository.commit()
+        return event
+
+    def process_pending_work(self) -> dict:
+        processed = {
+            "delivered": 0,
+            "failed": 0,
+            "dead_letter": 0,
+        }
+
+        # 1. Traiter les événements ROUTED → tentative de livraison
+        routed_events = self.repository.find_events_by_status(
+            EventStatus.ROUTED,
+        )
+
+        for event in routed_events:
+            try:
+                self.deliver_event(event.event_id)
+
+                if event.status == EventStatus.DELIVERED:
+                    processed["delivered"] += 1
+                elif event.status == EventStatus.FAILED:
+                    processed["failed"] += 1
+
+            except Exception:
+                processed["failed"] += 1
+
+        # 2. Traiter les événements FAILED → dead-letter si seuil atteint, sinon retry
+        failed_events = self.repository.find_events_by_status(
+            EventStatus.FAILED,
+        )
+
+        max_attempts = self.config_service.get_max_delivery_attempts()
+
+        for event in failed_events:
+            failed_deliveries = self.repository.find_deliveries_by_event_id_and_status(
+                event.id,
+                "FAILED",
+            )
+
+            exhausted = any(
+                delivery.attempt_count >= max_attempts
+                for delivery in failed_deliveries
+            )
+
+            try:
+                if exhausted:
+                    self.mark_exhausted_deliveries_as_dead_letter(event.event_id)
+                    processed["dead_letter"] += 1
+                else:
+                    self.retry_event(event.event_id)
+
+                    if event.status == EventStatus.DELIVERED:
+                        processed["delivered"] += 1
+                    elif event.status == EventStatus.FAILED:
+                        processed["failed"] += 1
+
+            except Exception:
+                processed["failed"] += 1
+
+        self.repository.commit()
+        return processed

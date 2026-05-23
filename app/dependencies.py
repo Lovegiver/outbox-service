@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.repositories.event_repository import EventRepository
+from app.services.config_service import ConfigService
 from app.services.delivery_service import DeliveryService
 from app.services.event_service import EventService
 from app.services.routing_service import RoutingService
@@ -15,10 +16,12 @@ def get_event_service(
     schema_validator = SchemaValidationService()
     routing_service = RoutingService()
     delivery_service = DeliveryService()
+    config_service = ConfigService()
 
     return EventService(
         repository,
         schema_validator,
         routing_service,
-        delivery_service
+        delivery_service,
+        config_service
     )

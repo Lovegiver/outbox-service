@@ -51,3 +51,16 @@ class EventRepository:
             .all()
         )
 
+    def find_events_by_status(
+            self,
+            status: str,
+    ) -> list[Event]:
+        statement = select(Event).where(
+            Event.status == status,
+        )
+
+        return list(
+            self.db.execute(statement)
+            .scalars()
+            .all()
+        )

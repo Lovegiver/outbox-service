@@ -128,3 +128,36 @@ def retry_event(
             detail="Failed to retry event"
         ) from exc
 
+@app.post("/events/{event_id}/dead-letter")
+def mark_event_as_dead_letter(
+        event_id: UUID,
+        service: EventService = Depends(get_event_service)
+):
+    try:
+        event = service.mark_exhausted_deliveries_as_dead_letter(event_id)
+        return {
+            "status": "dead_letter_processed",
+            "event_id": event.event_id,
+            "event_status": event.status,
+        }
+
+    except SQLAlchemyError as exc:
+        service.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process dead letter"
+        ) from exc
+
+@app.post("/worker/process")
+def process_worker(
+        service: EventService = Depends(get_event_service)
+):
+    try:
+        return service.process_pending_work()
+
+    except SQLAlchemyError as exc:
+        service.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to process worker"
+        ) from exc
