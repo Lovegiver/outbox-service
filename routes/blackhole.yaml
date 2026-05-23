@@ -1,0 +1,6 @@
+project: blackhole
+
+destinations:
+  - name: blackhole-api
+    type: webhook
+    url: "http://localhost:8081/events"

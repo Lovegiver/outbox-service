@@ -67,3 +67,64 @@ def validate_event(
             status_code=500,
             detail="Failed to validate event"
         ) from exc
+
+@app.post("/events/{event_id}/route")
+def route_event(
+        event_id: UUID,
+        service: EventService = Depends(get_event_service)
+):
+    try:
+        event = service.route_event(event_id)
+        return {
+            "status": "routed",
+            "event_id": event.event_id,
+            "event_status": event.status,
+        }
+
+    except SQLAlchemyError as exc:
+        service.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to route event"
+        ) from exc
+
+@app.post("/events/{event_id}/deliver")
+def deliver_event(
+        event_id: UUID,
+        service: EventService = Depends(get_event_service)
+):
+    try:
+        event = service.deliver_event(event_id)
+        return {
+            "status": "delivery_processed",
+            "event_id": event.event_id,
+            "event_status": event.status,
+        }
+
+    except SQLAlchemyError as exc:
+        service.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to deliver event"
+        ) from exc
+
+@app.post("/events/{event_id}/retry")
+def retry_event(
+        event_id: UUID,
+        service: EventService = Depends(get_event_service)
+):
+    try:
+        event = service.retry_event(event_id)
+        return {
+            "status": "retry_processed",
+            "event_id": event.event_id,
+            "event_status": event.status,
+        }
+
+    except SQLAlchemyError as exc:
+        service.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retry event"
+        ) from exc
+
