@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from jsonschema import ValidationError, validate
+from jsonschema import validate
 
 
 class SchemaValidationService:

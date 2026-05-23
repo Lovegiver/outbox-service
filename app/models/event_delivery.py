@@ -1,11 +1,9 @@
 from datetime import datetime, timezone
 
 from app.core.delivery_status import DeliveryStatus
+from app.database import Base
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
-
-from app.core import delivery_status
-from app.database import Base
 
 
 class EventDelivery(Base):

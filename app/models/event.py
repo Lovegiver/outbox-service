@@ -1,12 +1,10 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from app.database import Base
 from sqlalchemy import DateTime, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
-
-from app.core import delivery_status
-from app.database import Base
 
 
 class Event(Base):

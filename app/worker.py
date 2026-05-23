@@ -1,13 +1,7 @@
-from apscheduler.schedulers.background import BackgroundScheduler
-
+from app.container.service_factory import ServiceFactory
 from app.database import SessionLocal
-from app.repositories.event_repository import EventRepository
 from app.services.config_service import ConfigService
-from app.services.delivery_service import DeliveryService
-from app.services.event_service import EventService
-from app.services.routing_service import RoutingService
-from app.services.schema_validation_service import SchemaValidationService
-
+from apscheduler.schedulers.background import BackgroundScheduler
 
 scheduler = BackgroundScheduler()
 config_service = ConfigService()
@@ -17,14 +11,7 @@ def process_outbox() -> None:
     db = SessionLocal()
 
     try:
-        repository = EventRepository(db)
-        service = EventService(
-            repository=repository,
-            schema_validator=SchemaValidationService(),
-            routing_service=RoutingService(),
-            delivery_service=DeliveryService(),
-            config_service=ConfigService(),
-        )
+        service = ServiceFactory.create_event_service(db)
 
         result = service.process_pending_work()
         print(f"[outbox-worker] processed={result}")

@@ -1,27 +1,11 @@
+from app.container.service_factory import ServiceFactory
+from app.database import get_db
+from app.services.event_service import EventService
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.repositories.event_repository import EventRepository
-from app.services.config_service import ConfigService
-from app.services.delivery_service import DeliveryService
-from app.services.event_service import EventService
-from app.services.routing_service import RoutingService
-from app.services.schema_validation_service import SchemaValidationService
 
 def get_event_service(
         db: Session = Depends(get_db)
 ) -> EventService:
-    repository = EventRepository(db)
-    schema_validator = SchemaValidationService()
-    routing_service = RoutingService()
-    delivery_service = DeliveryService()
-    config_service = ConfigService()
-
-    return EventService(
-        repository,
-        schema_validator,
-        routing_service,
-        delivery_service,
-        config_service
-    )
+    return ServiceFactory.create_event_service(db)

@@ -1,13 +1,13 @@
-from uuid import UUID
-from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from contextlib import asynccontextmanager
+from uuid import UUID
 
-from app.database import Base, engine
 from app.dependencies import get_event_service
 from app.schemas.event_schema import EventIn, EventReceived
 from app.services.event_service import EventService
 from app.worker import start_worker, stop_worker
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
