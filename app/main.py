@@ -1,19 +1,23 @@
 from contextlib import asynccontextmanager
-from uuid import UUID
 
+from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
+from app.api.admin.project_api import router as admin_project_router
+from app.api.admin.schema_api import router as admin_schema_router
+from app.api.admin.route_api import router as admin_route_router
 from app.dependencies import get_event_service
 from app.schemas.event_schema import EventIn, EventReceived
 from app.services.event_service import EventService
 from app.worker import start_worker, stop_worker
-from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     start_worker()
     yield
     stop_worker()
+
 
 app = FastAPI(
     title="Outbox Service",
@@ -21,6 +25,11 @@ app = FastAPI(
     description="Event routing and delivery service",
     lifespan=lifespan,
 )
+
+app.include_router(admin_project_router)
+app.include_router(admin_schema_router)
+app.include_router(admin_route_router)
+
 
 @app.get("/health")
 def health():
@@ -32,141 +41,34 @@ def health():
 
 @app.post("/events", response_model=EventReceived)
 def receive_event(
-        event: EventIn,
-        service: EventService = Depends(get_event_service)
+    event: EventIn,
+    service: EventService = Depends(get_event_service),
 ):
     try:
-        service.receive_event(event)
+        return service.receive_event(event)
 
     except IntegrityError as exc:
-        service.rollback()
         raise HTTPException(
             status_code=409,
-            detail="Event already exists"
+            detail="Event already exists",
         ) from exc
 
     except SQLAlchemyError as exc:
-        service.rollback()
         raise HTTPException(
             status_code=500,
-            detail="Failed to persist event"
+            detail="Failed to persist event",
         ) from exc
 
-    return EventReceived(
-        status="received",
-        event=event,
-    )
-
-@app.post("/events/{event_id}/validate")
-def validate_event(
-        event_id: UUID,
-        service: EventService = Depends(get_event_service)
-):
-    try:
-        event = service.validate_event(event_id)
-        return {
-            "status": "validated",
-            "event_id": event.event_id,
-            "event_status": event.status,
-        }
-
-    except SQLAlchemyError as exc:
-        service.rollback()
+    except ValueError as exc:
         raise HTTPException(
-            status_code=500,
-            detail="Failed to validate event"
+            status_code=400,
+            detail=str(exc),
         ) from exc
 
-@app.post("/events/{event_id}/route")
-def route_event(
-        event_id: UUID,
-        service: EventService = Depends(get_event_service)
-):
-    try:
-        event = service.route_event(event_id)
-        return {
-            "status": "routed",
-            "event_id": event.event_id,
-            "event_status": event.status,
-        }
-
-    except SQLAlchemyError as exc:
-        service.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to route event"
-        ) from exc
-
-@app.post("/events/{event_id}/deliver")
-def deliver_event(
-        event_id: UUID,
-        service: EventService = Depends(get_event_service)
-):
-    try:
-        event = service.deliver_event(event_id)
-        return {
-            "status": "delivery_processed",
-            "event_id": event.event_id,
-            "event_status": event.status,
-        }
-
-    except SQLAlchemyError as exc:
-        service.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to deliver event"
-        ) from exc
-
-@app.post("/events/{event_id}/retry")
-def retry_event(
-        event_id: UUID,
-        service: EventService = Depends(get_event_service)
-):
-    try:
-        event = service.retry_event(event_id)
-        return {
-            "status": "retry_processed",
-            "event_id": event.event_id,
-            "event_status": event.status,
-        }
-
-    except SQLAlchemyError as exc:
-        service.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to retry event"
-        ) from exc
-
-@app.post("/events/{event_id}/dead-letter")
-def mark_event_as_dead_letter(
-        event_id: UUID,
-        service: EventService = Depends(get_event_service)
-):
-    try:
-        event = service.mark_exhausted_deliveries_as_dead_letter(event_id)
-        return {
-            "status": "dead_letter_processed",
-            "event_id": event.event_id,
-            "event_status": event.status,
-        }
-
-    except SQLAlchemyError as exc:
-        service.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to process dead letter"
-        ) from exc
 
 @app.post("/worker/process")
-def process_worker(
-        service: EventService = Depends(get_event_service)
-):
-    try:
-        return service.process_pending_work()
-
-    except SQLAlchemyError as exc:
-        service.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to process worker"
-        ) from exc
+def process_worker():
+    return {
+        "status": "disabled",
+        "detail": "Worker processing will be reconnected after routing/delivery services are adapted.",
+    }

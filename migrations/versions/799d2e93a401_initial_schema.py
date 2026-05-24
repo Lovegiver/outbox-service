@@ -1,8 +1,8 @@
-"""Create event table
+"""initial schema
 
-Revision ID: b66396dc6b87
+Revision ID: 799d2e93a401
 Revises: 
-Create Date: 2026-05-22 16:27:15.503692
+Create Date: 2026-05-23 15:36:06.266879
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'b66396dc6b87'
+revision: str = '799d2e93a401'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

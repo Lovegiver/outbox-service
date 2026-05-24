@@ -1,0 +1,5 @@
+delivery:
+  max_attempts: 5
+
+worker:
+  interval_seconds: 300

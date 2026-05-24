@@ -11,14 +11,17 @@ def process_outbox() -> None:
     db = SessionLocal()
 
     try:
-        service = ServiceFactory.create_event_service(db)
+        ServiceFactory.create_event_service(db)
 
-        result = service.process_pending_work()
-        print(f"[outbox-worker] processed={result}")
+        print(
+            "[outbox-worker] heartbeat"
+        )
 
     except Exception as exc:
         db.rollback()
-        print(f"[outbox-worker] error={exc}")
+        print(
+            f"[outbox-worker] error={exc}"
+        )
 
     finally:
         db.close()

@@ -1,32 +1,37 @@
-import json
-from pathlib import Path
-
 from jsonschema import validate
+
+from app.repositories.schema_repository import SchemaRepository
 
 
 class SchemaValidationService:
+
+    def __init__(
+        self,
+        schema_repository: SchemaRepository,
+    ):
+        self.schema_repository = schema_repository
+
     def validate_payload(
-            self,
-            project: str,
-            event_type: str,
-            payload: dict
+        self,
+        event_type_id: int,
+        schema_version: str,
+        payload: dict,
     ) -> None:
-        schema_path = self._resolve_schema_path(project, event_type)
-
-        if not schema_path.exists():
-            raise FileNotFoundError(
-                f"No schema found for project={project}, event_type={event_type}"
+        schema_definition = (
+            self.schema_repository.find_active_by_event_type_and_version(
+                event_type_id=event_type_id,
+                version=schema_version,
             )
+        )
 
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        if schema_definition is None:
+            raise ValueError(
+                "No active schema found for "
+                f"event_type_id={event_type_id}, "
+                f"schema_version={schema_version}"
+            )
 
         validate(
             instance=payload,
-            schema=schema
+            schema=schema_definition.json_schema,
         )
-
-    def _resolve_schema_path(self, project: str, event_type: str) -> Path:
-        safe_project = project.lower()
-        safe_event_type = event_type.lower().replace(".", "_")
-
-        return Path("schemas") / safe_project / f"{safe_event_type}.schema.json"

@@ -1,11 +1,14 @@
-from pathlib import Path
-
+import os
 import yaml
+from dotenv import load_dotenv
+from pathlib import Path
 
 
 class ConfigService:
-    def __init__(self, config_path: str = "config/app.dev.yaml"):
-        self.config_path = Path(config_path)
+    def __init__(self, env: str | None = None):
+        load_dotenv()
+        self.env = env or os.getenv("OUTBOX_ENV", "dev")
+        self.config_path = Path("config") / f"app.{self.env}.yaml"
         self.config = self._load()
 
     def _load(self) -> dict:

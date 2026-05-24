@@ -21,9 +21,9 @@ class DeliveryService:
             )
 
         payload = {
-            "event_id": str(event.event_id),
-            "project": event.project,
-            "event_type": event.event_type,
+            "event_uuid": str(event.event_uuid),
+            "project_id": event.project_id,
+            "event_type_id": event.event_type_id,
             "schema_version": event.schema_version,
             "payload": event.payload,
         }
