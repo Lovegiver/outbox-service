@@ -2,8 +2,9 @@ from datetime import datetime, timezone
 
 from app.core.delivery_status import DeliveryStatus
 from app.database import Base
-from sqlalchemy import DateTime, ForeignKey, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from app.models import Event
+from sqlalchemy import DateTime, ForeignKey, Integer, String, BigInteger
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
 class EventDelivery(Base):
@@ -11,6 +12,7 @@ class EventDelivery(Base):
     __table_args__ = {"schema": "outbox"}
 
     id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
         autoincrement=True,
     )
@@ -63,4 +65,8 @@ class EventDelivery(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    event: Mapped[Event] = relationship(
+        back_populates="deliveries"
     )

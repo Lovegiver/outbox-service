@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, String, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -17,6 +17,7 @@ class Project(Base):
     __table_args__ = {"schema": "outbox"}
 
     id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
         autoincrement=True,
     )

@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING
+
 from sqlalchemy import (
     BigInteger,
     DateTime,
@@ -9,51 +12,17 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.project import Project
+    from app.models.event_type import EventType
 
 
 class SystemMetric(Base):
     __tablename__ = "system_metric"
-
-    id: Mapped[int] = mapped_column(
-        BigInteger,
-        primary_key=True,
-        autoincrement=True
-    )
-
-    metric_code: Mapped[str] = mapped_column(
-        String(100)
-    )
-
-    project_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        ForeignKey("outbox.project.id"),
-        nullable=True
-    )
-
-    event_type_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger,
-        nullable=True
-    )
-
-    period_start: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True)
-    )
-
-    period_end: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True)
-    )
-
-    value: Mapped[float] = mapped_column(
-        Numeric
-    )
-
-    computed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now()
-    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -66,3 +35,51 @@ class SystemMetric(Base):
         ),
         {"schema": "outbox"},
     )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    metric_code: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    project_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("outbox.project.id"),
+        nullable=True,
+    )
+
+    event_type_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("outbox.event_type.id"),
+        nullable=True,
+    )
+
+    period_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    period_end: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+    value: Mapped[float] = mapped_column(
+        Numeric,
+        nullable=False,
+    )
+
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    project: Mapped[Project | None] = relationship()
+
+    event_type: Mapped[EventType | None] = relationship()

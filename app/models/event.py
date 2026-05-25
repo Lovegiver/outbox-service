@@ -13,6 +13,7 @@ from app.database import Base
 if TYPE_CHECKING:
     from app.models.event_type import EventType
     from app.models.project import Project
+    from app.models.event_delivery import EventDelivery
 
 
 class Event(Base):
@@ -47,6 +48,7 @@ class Event(Base):
         String(30),
         nullable=False,
         default="1.0",
+        server_default="1.0",
     )
 
     payload: Mapped[dict] = mapped_column(
@@ -79,4 +81,9 @@ class Event(Base):
 
     event_type: Mapped[EventType] = relationship(
         back_populates="events",
+    )
+
+    deliveries: Mapped[list[EventDelivery]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
     )
