@@ -26,7 +26,7 @@ class ProjectService:
         project = Project(
             name=name,
             description=description,
-            enabled=True
+            is_active=True
         )
 
         return self.project_repository.create(project)

@@ -1,17 +1,27 @@
-from sqlalchemy import (
-    BigInteger,
-    Boolean,
-    ForeignKey,
-    String,
-)
-from sqlalchemy.orm import Mapped, mapped_column
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.event_type import EventType
 
 
 class RouteDefinition(Base):
     __tablename__ = "route_definition"
-    __table_args__ = {"schema": "outbox"}
+    __table_args__ = (
+        UniqueConstraint(
+            "event_type_id",
+            "routing_key",
+            "destination_url",
+            name="uq_route_event_type_routing_destination",
+        ),
+        {"schema": "outbox"},
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger,
@@ -40,8 +50,12 @@ class RouteDefinition(Base):
         nullable=False,
     )
 
-    enabled: Mapped[bool] = mapped_column(
+    is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=True,
+    )
+
+    event_type: Mapped[EventType] = relationship(
+        back_populates="routes",
     )

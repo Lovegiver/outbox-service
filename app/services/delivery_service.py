@@ -24,7 +24,7 @@ class DeliveryService:
             "event_uuid": str(event.event_uuid),
             "project_id": event.project_id,
             "event_type_id": event.event_type_id,
-            "schema_version": event.schema_version,
+            "json_version_internal": event.json_version_internal,
             "payload": event.payload,
         }
 

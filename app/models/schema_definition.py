@@ -1,8 +1,16 @@
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.event_type import EventType
 
 
 class SchemaDefinition(Base):
@@ -10,17 +18,13 @@ class SchemaDefinition(Base):
     __table_args__ = (
         UniqueConstraint(
             "event_type_id",
-            "version",
-            name="uq_schema_definition_event_type_version",
+            "json_version_internal",
+            name="uq_schema_event_type_internal_version",
         ),
         {"schema": "outbox"},
     )
 
-    id: Mapped[int] = mapped_column(
-        BigInteger,
-        primary_key=True,
-        autoincrement=True,
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 
     event_type_id: Mapped[int] = mapped_column(
         BigInteger,
@@ -28,23 +32,29 @@ class SchemaDefinition(Base):
         nullable=False,
     )
 
-    name: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
+    json_version_client: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
     )
 
-    version: Mapped[str] = mapped_column(
-        String(20),
+    json_version_internal: Mapped[str] = mapped_column(
+        String(30),
         nullable=False,
+        default="1.0",
     )
 
-    json_schema: Mapped[dict] = mapped_column(
-        JSONB,
-        nullable=False,
-    )
+    json_schema: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
-    enabled: Mapped[bool] = mapped_column(
+    is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=True,
     )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    event_type: Mapped[EventType] = relationship(back_populates="schemas")

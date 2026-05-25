@@ -5,75 +5,47 @@ from app.models.schema_definition import SchemaDefinition
 
 
 class SchemaRepository:
-
     def __init__(self, db: Session):
         self.db = db
 
-    def create(
-        self,
-        schema: SchemaDefinition,
-    ) -> SchemaDefinition:
-        self.db.add(schema)
+    def create(self, schema_definition: SchemaDefinition) -> SchemaDefinition:
+        self.db.add(schema_definition)
         self.db.commit()
-        self.db.refresh(schema)
+        self.db.refresh(schema_definition)
+        return schema_definition
 
-        return schema
-
-    def find_by_id(
-        self,
-        schema_id: int,
-    ) -> SchemaDefinition | None:
-        statement = (
-            select(SchemaDefinition)
-            .where(SchemaDefinition.id == schema_id)
+    def find_by_id(self, schema_definition_id: int) -> SchemaDefinition | None:
+        stmt = select(SchemaDefinition).where(
+            SchemaDefinition.id == schema_definition_id
         )
+        return self.db.execute(stmt).scalar_one_or_none()
 
-        return self.db.execute(statement).scalar_one_or_none()
+    def find_active_by_event_type_and_internal_version(
+        self,
+        event_type_id: int,
+        json_version_internal: str,
+    ) -> SchemaDefinition | None:
+        stmt = select(SchemaDefinition).where(
+            SchemaDefinition.event_type_id == event_type_id,
+            SchemaDefinition.json_version_internal == json_version_internal,
+            SchemaDefinition.is_active.is_(True),
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
 
     def find_active_by_event_type(
         self,
         event_type_id: int,
-    ) -> list[SchemaDefinition]:
-        statement = (
-            select(SchemaDefinition)
-            .where(
-                SchemaDefinition.event_type_id == event_type_id,
-                SchemaDefinition.enabled.is_(True),
-            )
-        )
-
-        return list(self.db.execute(statement).scalars().all())
-
-    def find_active_by_event_type_and_version(
-        self,
-        event_type_id: int,
-        version: str,
     ) -> SchemaDefinition | None:
-        statement = (
-            select(SchemaDefinition)
-            .where(
-                SchemaDefinition.event_type_id == event_type_id,
-                SchemaDefinition.version == version,
-                SchemaDefinition.enabled.is_(True),
-            )
+        stmt = select(SchemaDefinition).where(
+            SchemaDefinition.event_type_id == event_type_id,
+            SchemaDefinition.is_active.is_(True),
         )
+        return self.db.execute(stmt).scalar_one_or_none()
 
-        return self.db.execute(statement).scalar_one_or_none()
-
-    def disable(
-        self,
-        schema: SchemaDefinition,
-    ) -> SchemaDefinition:
-        schema.enabled = False
-
-        self.db.commit()
-        self.db.refresh(schema)
-
-        return schema
-
-    def delete(
-        self,
-        schema: SchemaDefinition,
-    ) -> None:
-        self.db.delete(schema)
-        self.db.commit()
+    def list_by_event_type(self, event_type_id: int) -> list[SchemaDefinition]:
+        stmt = (
+            select(SchemaDefinition)
+            .where(SchemaDefinition.event_type_id == event_type_id)
+            .order_by(SchemaDefinition.json_version_internal)
+        )
+        return list(self.db.execute(stmt).scalars().all())

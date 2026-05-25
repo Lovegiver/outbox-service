@@ -23,7 +23,7 @@ class RouteService:
             routing_key=routing_key,
             destination_name=destination_name,
             destination_url=destination_url,
-            enabled=True
+            is_active=True
         )
 
         return self.route_repository.create(route)

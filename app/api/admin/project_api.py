@@ -9,7 +9,7 @@ from app.schemas.project_schema import (
 )
 
 router = APIRouter(
-    prefix="/admin/projects",
+    prefix="/api/admin/projects",
     tags=["admin-projects"],
 )
 

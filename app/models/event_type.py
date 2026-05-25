@@ -1,7 +1,17 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.event import Event
+    from app.models.project import Project
+    from app.models.route_definition import RouteDefinition
+    from app.models.schema_definition import SchemaDefinition
 
 
 class EventType(Base):
@@ -42,8 +52,27 @@ class EventType(Base):
         nullable=True,
     )
 
-    enabled: Mapped[bool] = mapped_column(
+    is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=True,
+    )
+
+    project: Mapped[Project] = relationship(
+        back_populates="event_types",
+    )
+
+    schemas: Mapped[list[SchemaDefinition]] = relationship(
+        back_populates="event_type",
+        cascade="all, delete-orphan",
+    )
+
+    routes: Mapped[list[RouteDefinition]] = relationship(
+        back_populates="event_type",
+        cascade="all, delete-orphan",
+    )
+
+    events: Mapped[list[Event]] = relationship(
+        back_populates="event_type",
+        cascade="all, delete-orphan",
     )

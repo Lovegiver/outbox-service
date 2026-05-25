@@ -9,14 +9,14 @@ class ProjectCreateRequest(BaseModel):
 class ProjectUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
-    enabled: bool | None = None
+    is_active: bool | None = None
 
 
 class ProjectResponse(BaseModel):
     id: int
     name: str
     description: str | None
-    enabled: bool
+    is_active: bool
 
     model_config = {
         "from_attributes": True

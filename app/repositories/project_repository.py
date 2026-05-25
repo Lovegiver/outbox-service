@@ -78,7 +78,7 @@ class ProjectRepository:
         project: Project
     ) -> Project:
 
-        project.enabled = False
+        project.is_active = False
 
         return self.update(project)
 

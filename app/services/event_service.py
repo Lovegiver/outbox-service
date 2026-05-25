@@ -24,7 +24,7 @@ class EventService:
     def receive_event(self, event_in: EventIn) -> EventReceived:
         self.schema_validation_service.validate_payload(
             event_type_id=event_in.event_type_id,
-            schema_version=event_in.schema_version,
+            json_version_internal=event_in.json_version_internal,
             payload=event_in.payload,
         )
 
@@ -32,7 +32,7 @@ class EventService:
             event_uuid=event_in.event_uuid or uuid4(),
             project_id=event_in.project_id,
             event_type_id=event_in.event_type_id,
-            schema_version=event_in.schema_version,
+            json_version_internal=event_in.json_version_internal,
             payload=event_in.payload,
             status=EventStatus.RECEIVED.value,
         )

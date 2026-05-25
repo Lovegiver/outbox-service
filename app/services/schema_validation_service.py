@@ -1,37 +1,35 @@
-from jsonschema import validate
+from jsonschema import ValidationError, validate
 
 from app.repositories.schema_repository import SchemaRepository
 
 
 class SchemaValidationService:
-
-    def __init__(
-        self,
-        schema_repository: SchemaRepository,
-    ):
+    def __init__(self, schema_repository: SchemaRepository):
         self.schema_repository = schema_repository
 
     def validate_payload(
         self,
         event_type_id: int,
-        schema_version: str,
+        json_version_internal: str,
         payload: dict,
     ) -> None:
         schema_definition = (
-            self.schema_repository.find_active_by_event_type_and_version(
+            self.schema_repository.find_active_by_event_type_and_internal_version(
                 event_type_id=event_type_id,
-                version=schema_version,
+                json_version_internal=json_version_internal,
             )
         )
 
         if schema_definition is None:
             raise ValueError(
-                "No active schema found for "
-                f"event_type_id={event_type_id}, "
-                f"schema_version={schema_version}"
+                f"No active schema found for event_type_id={event_type_id}, "
+                f"json_version_internal={json_version_internal}"
             )
 
-        validate(
-            instance=payload,
-            schema=schema_definition.json_schema,
-        )
+        try:
+            validate(
+                instance=payload,
+                schema=schema_definition.json_schema,
+            )
+        except ValidationError as exc:
+            raise ValueError(f"Invalid payload: {exc.message}") from exc

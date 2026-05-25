@@ -48,7 +48,7 @@ class RouteRepository:
             select(RouteDefinition)
             .where(
                 RouteDefinition.event_type_id == event_type_id,
-                RouteDefinition.enabled.is_(True)
+                RouteDefinition.is_active.is_(True)
             )
         )
 
@@ -63,7 +63,7 @@ class RouteRepository:
         route: RouteDefinition
     ) -> RouteDefinition:
 
-        route.enabled = False
+        route.is_active = False
 
         self.db.commit()
         self.db.refresh(route)

@@ -1,7 +1,15 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from sqlalchemy import Boolean, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.event import Event
+    from app.models.event_type import EventType
 
 
 class Project(Base):
@@ -24,8 +32,18 @@ class Project(Base):
         nullable=True,
     )
 
-    enabled: Mapped[bool] = mapped_column(
+    is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=True,
+    )
+
+    event_types: Mapped[list[EventType]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    events: Mapped[list[Event]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
     )

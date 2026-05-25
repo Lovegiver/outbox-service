@@ -9,11 +9,11 @@ class RouteDefinitionCreateRequest(BaseModel):
 
 class RouteDefinitionResponse(BaseModel):
     id: int
-    project_id: int
+    event_type_id: int
     routing_key: str
     destination_name: str
     destination_url: str
-    enabled: bool
+    is_active: bool
 
     model_config = {
         "from_attributes": True

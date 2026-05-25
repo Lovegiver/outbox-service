@@ -13,25 +13,25 @@ class SchemaService:
     def create_schema(
         self,
         event_type_id: int,
-        name: str,
-        version: str,
+        json_version_client: str | None,
+        json_version_internal: str,
         json_schema: dict
     ) -> SchemaDefinition:
 
         schema = SchemaDefinition(
             event_type_id=event_type_id,
-            name=name,
-            version=version,
+            json_version_client=json_version_client,
+            json_version_internal=json_version_internal,
             json_schema=json_schema,
-            enabled=True
+            is_active=True
         )
 
         return self.schema_repository.create(schema)
 
-    def get_active_schemas(
+    def get_active_schema(
         self,
         event_type_id: int
-    ) -> list[SchemaDefinition]:
+    ) -> SchemaDefinition | None:
 
         return self.schema_repository.find_active_by_event_type(
             event_type_id
@@ -42,15 +42,13 @@ class SchemaService:
         schema_id: int
     ) -> SchemaDefinition:
 
-        schema = self.schema_repository.find_by_id(
-            schema_id
-        )
+        schema = self.schema_repository.find_by_id(schema_id)
 
         if schema is None:
             raise ValueError(
                 f"Schema {schema_id} not found"
             )
 
-        return self.schema_repository.disable(
-            schema
-        )
+        schema.is_active = False
+
+        return self.schema_repository.create(schema)
