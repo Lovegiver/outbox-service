@@ -217,3 +217,20 @@ class SystemMetricRepository:
             metric_code="event.routed.total",
             status=EventStatus.ROUTED,
         )
+
+    def find_latest_metrics(
+            self,
+    ) -> list[SystemMetric]:
+        statement = (
+            select(SystemMetric)
+            .order_by(
+                SystemMetric.metric_code,
+                SystemMetric.computed_at.desc(),
+            )
+        )
+
+        return list(
+            self.db.execute(statement)
+            .scalars()
+            .all()
+        )
