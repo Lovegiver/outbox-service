@@ -1,10 +1,10 @@
 from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.auth_type import AuthType
 from app.database import Base
 
 if TYPE_CHECKING:
@@ -54,6 +54,22 @@ class RouteDefinition(Base):
         Boolean,
         nullable=False,
         default=True,
+    )
+
+    auth_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default=AuthType.NONE,
+    )
+
+    auth_config: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    secret_ref: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
     )
 
     event_type: Mapped[EventType] = relationship(

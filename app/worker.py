@@ -1,5 +1,8 @@
 from app.container.service_factory import ServiceFactory
+from app.core.delivery_status import DeliveryStatus
+from app.core.event_status import EventStatus
 from app.database import SessionLocal
+from app.models import EventDelivery
 from app.services.config_service import ConfigService
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -7,24 +10,168 @@ scheduler = BackgroundScheduler()
 config_service = ConfigService()
 
 
-def process_outbox() -> None:
+def route_received_events() -> None:
     db = SessionLocal()
 
     try:
-        ServiceFactory.create_event_service(db)
+        event_service = ServiceFactory.create_event_service(db)
+        route_service = ServiceFactory.create_route_service(db)
+        delivery_repository = ServiceFactory.create_event_delivery_repository(db)
 
-        print(
-            "[outbox-worker] heartbeat"
-        )
+        events = event_service.event_repository.find_received()
+
+        for event in events:
+            routes = route_service.route_repository.find_by_event_type(
+                event.event_type_id
+            )
+
+            for route in routes:
+                delivery = EventDelivery(
+                    event_id=event.id,
+                    destination_name=route.destination_name,
+                    destination_type="webhook",
+                    destination_url=route.destination_url,
+                    status=DeliveryStatus.PENDING,
+                )
+
+                delivery_repository.create(delivery)
+
+            if routes:
+                event.status = EventStatus.ROUTED
+                event_service.event_repository.save(event)
+
+        db.commit()
 
     except Exception as exc:
         db.rollback()
+        print(f"[outbox-worker] routing error={exc}")
+
+    finally:
+        db.close()
+
+
+def deliver_one_delivery(delivery_id: int) -> None:
+    db = SessionLocal()
+
+    delivery_repository = None
+
+    try:
+        event_service = ServiceFactory.create_event_service(db)
+        delivery_repository = (
+            ServiceFactory.create_event_delivery_repository(db)
+        )
+
+        delivery_service = ServiceFactory.delivery_service
+
+        delivery = delivery_repository.find_by_id(
+            delivery_id
+        )
+
+        if delivery is None:
+            print(
+                f"[outbox-worker] delivery not found "
+                f"delivery_id={delivery_id}"
+            )
+            return
+
+        event = event_service.event_repository.get_by_id(
+            delivery.event_id
+        )
+
+        if event is None:
+            delivery.status = DeliveryStatus.FAILED
+            delivery.last_error = (
+                f"Event not found: {delivery.event_id}"
+            )
+
+            delivery_repository.save(delivery)
+
+            db.commit()
+            return
+
+        delivery_service.deliver(
+            event=event,
+            delivery=delivery,
+        )
+
+        delivery_repository.save(delivery)
+
+        db.commit()
+
+    except Exception as exc:
+        db.rollback()
+
+        try:
+            if delivery_repository is not None:
+                delivery = (
+                    delivery_repository.find_by_id(
+                        delivery_id
+                    )
+                )
+
+                if delivery is not None:
+                    delivery.status = (
+                        DeliveryStatus.FAILED
+                    )
+
+                    delivery.attempt_count += 1
+
+                    delivery.last_error = (
+                        str(exc)[:1000]
+                    )
+
+                    delivery_repository.save(
+                        delivery
+                    )
+
+                    db.commit()
+
+        except Exception as save_exc:
+            db.rollback()
+
+            print(
+                f"[outbox-worker] failed to persist "
+                f"delivery failure "
+                f"delivery_id={delivery_id} "
+                f"error={save_exc}"
+            )
+
         print(
-            f"[outbox-worker] error={exc}"
+            f"[outbox-worker] delivery error "
+            f"delivery_id={delivery_id} "
+            f"error={exc}"
         )
 
     finally:
         db.close()
+
+
+def deliver_pending_deliveries() -> None:
+    db = SessionLocal()
+
+    try:
+        delivery_repository = ServiceFactory.create_event_delivery_repository(db)
+        deliveries = delivery_repository.find_pending()
+
+        delivery_ids = [
+            delivery.id
+            for delivery in deliveries
+        ]
+
+    finally:
+        db.close()
+
+    for delivery_id in delivery_ids:
+        deliver_one_delivery(delivery_id)
+
+
+def process_outbox() -> None:
+    print("[outbox-worker] cycle started")
+
+    route_received_events()
+    deliver_pending_deliveries()
+
+    print("[outbox-worker] cycle finished")
 
 
 def start_worker() -> None:
@@ -38,9 +185,7 @@ def start_worker() -> None:
         replace_existing=True,
     )
 
-    print(
-        f"[outbox-worker] interval={interval}s"
-    )
+    print(f"[outbox-worker] interval={interval}s")
 
     scheduler.start()
     print("[outbox-worker] started")

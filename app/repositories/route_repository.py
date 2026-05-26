@@ -23,6 +23,15 @@ class RouteRepository:
 
         return route
 
+    def save(
+            self,
+            route: RouteDefinition
+    ) -> RouteDefinition:
+        self.db.commit()
+        self.db.refresh(route)
+
+        return route
+
     def find_by_id(
         self,
         route_id: int

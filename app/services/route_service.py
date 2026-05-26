@@ -48,3 +48,33 @@ class RouteService:
             )
 
         return self.route_repository.disable(route)
+
+    def update_route(
+            self,
+            route_id: int,
+            routing_key: str | None = None,
+            destination_name: str | None = None,
+            destination_url: str | None = None
+    ) -> RouteDefinition:
+
+        route = self.route_repository.find_by_id(
+            route_id
+        )
+
+        if route is None:
+            raise ValueError(
+                f"Route {route_id} not found"
+            )
+
+        if routing_key is not None:
+            route.routing_key = routing_key
+
+        if destination_name is not None:
+            route.destination_name = destination_name
+
+        if destination_url is not None:
+            route.destination_url = destination_url
+
+        return self.route_repository.save(
+            route
+        )

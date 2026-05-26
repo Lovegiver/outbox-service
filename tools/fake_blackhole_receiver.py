@@ -1,6 +1,4 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Any
+from fastapi import FastAPI, Request
 
 app = FastAPI(
     title="Fake BlackHole Receiver",
@@ -8,22 +6,16 @@ app = FastAPI(
 )
 
 
-class ReceivedEvent(BaseModel):
-    event_id: str
-    project: str
-    event_type: str
-    schema_version: str
-    payload: dict[str, Any]
-
-
 @app.post("/events")
-def receive_event(event: ReceivedEvent):
-    print("Fake BlackHole received event:")
-    print(event.model_dump())
+async def receive_event(request: Request):
+    payload = await request.json()
+
+    print("\n=== Fake BlackHole received payload ===")
+    print(payload)
 
     return {
         "status": "received_by_fake_blackhole",
-        "event_id": event.event_id,
+        "received": True,
     }
 
 

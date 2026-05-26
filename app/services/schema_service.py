@@ -52,3 +52,13 @@ class SchemaService:
         schema.is_active = False
 
         return self.schema_repository.create(schema)
+
+    def find_active_by_project_and_event_type(
+            self,
+            project_name: str,
+            event_type_code: str,
+    ):
+        return self.schema_repository.find_active_by_project_and_event_type(
+            project_name=project_name,
+            event_type_code=event_type_code,
+        )

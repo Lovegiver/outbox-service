@@ -1,3 +1,4 @@
+from app.models import EventType, Project
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -49,3 +50,21 @@ class SchemaRepository:
             .order_by(SchemaDefinition.json_version_internal)
         )
         return list(self.db.execute(stmt).scalars().all())
+
+    def find_active_by_project_and_event_type(
+            self,
+            project_name: str,
+            event_type_code: str,
+    ) -> SchemaDefinition | None:
+        statement = (
+            select(SchemaDefinition)
+            .join(EventType, SchemaDefinition.event_type_id == EventType.id)
+            .join(Project, EventType.project_id == Project.id)
+            .where(
+                Project.name == project_name,
+                EventType.code == event_type_code,
+                SchemaDefinition.is_active.is_(True),
+            )
+        )
+
+        return self.db.execute(statement).scalar_one_or_none()

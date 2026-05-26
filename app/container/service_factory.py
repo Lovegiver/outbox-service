@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.repositories.event_repository import EventRepository
+from app.repositories.event_delivery_repository import EventDeliveryRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.route_repository import RouteRepository
 from app.repositories.schema_repository import SchemaRepository
@@ -69,3 +70,10 @@ class ServiceFactory:
         return SchemaService(
             schema_repository=repository
         )
+
+    @classmethod
+    def create_event_delivery_repository(
+            cls,
+            db: Session
+    ) -> EventDeliveryRepository:
+        return EventDeliveryRepository(db)

@@ -6,6 +6,10 @@ class RouteDefinitionCreateRequest(BaseModel):
     destination_name: str
     destination_url: str
 
+class RouteDefinitionUpdateRequest(BaseModel):
+    routing_key: str | None = None
+    destination_name: str | None = None
+    destination_url: str | None = None
 
 class RouteDefinitionResponse(BaseModel):
     id: int
