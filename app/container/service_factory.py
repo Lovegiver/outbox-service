@@ -1,3 +1,4 @@
+from app.repositories.system_metric_repository import SystemMetricRepository
 from sqlalchemy.orm import Session
 
 from app.repositories.event_repository import EventRepository
@@ -77,3 +78,9 @@ class ServiceFactory:
             db: Session
     ) -> EventDeliveryRepository:
         return EventDeliveryRepository(db)
+
+    @staticmethod
+    def create_system_metric_repository(
+            db: Session,
+    ) -> SystemMetricRepository:
+        return SystemMetricRepository(db)

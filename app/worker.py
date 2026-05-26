@@ -176,6 +176,31 @@ def process_outbox() -> None:
     route_received_events()
     deliver_pending_deliveries()
 
+    db = SessionLocal()
+
+    try:
+        metric_repository = (
+            ServiceFactory
+            .create_system_metric_repository(db)
+        )
+
+        metric_repository.update_dead_letter_metric()
+        metric_repository.update_dead_letter_metric()
+        metric_repository.update_delivered_metric()
+        metric_repository.update_retry_metric()
+
+        db.commit()
+
+    except Exception as exc:
+        db.rollback()
+
+        print(
+            f"[outbox-worker] metric update error={exc}"
+        )
+
+    finally:
+        db.close()
+
     print("[outbox-worker] cycle finished")
 
 
