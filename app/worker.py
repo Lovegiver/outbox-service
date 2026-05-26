@@ -53,19 +53,14 @@ def route_received_events() -> None:
 def deliver_one_delivery(delivery_id: int) -> None:
     db = SessionLocal()
 
-    delivery_repository = None
-
     try:
         event_service = ServiceFactory.create_event_service(db)
         delivery_repository = (
             ServiceFactory.create_event_delivery_repository(db)
         )
-
         delivery_service = ServiceFactory.delivery_service
 
-        delivery = delivery_repository.find_by_id(
-            delivery_id
-        )
+        delivery = delivery_repository.find_by_id(delivery_id)
 
         if delivery is None:
             print(
@@ -80,12 +75,8 @@ def deliver_one_delivery(delivery_id: int) -> None:
 
         if event is None:
             delivery.status = DeliveryStatus.FAILED
-            delivery.last_error = (
-                f"Event not found: {delivery.event_id}"
-            )
-
+            delivery.last_error = f"Event not found: {delivery.event_id}"
             delivery_repository.save(delivery)
-
             db.commit()
             return
 
@@ -95,51 +86,61 @@ def deliver_one_delivery(delivery_id: int) -> None:
         )
 
         delivery_repository.save(delivery)
-
         db.commit()
 
     except Exception as exc:
         db.rollback()
-
-        try:
-            if delivery_repository is not None:
-                delivery = (
-                    delivery_repository.find_by_id(
-                        delivery_id
-                    )
-                )
-
-                if delivery is not None:
-                    delivery.status = (
-                        DeliveryStatus.FAILED
-                    )
-
-                    delivery.attempt_count += 1
-
-                    delivery.last_error = (
-                        str(exc)[:1000]
-                    )
-
-                    delivery_repository.save(
-                        delivery
-                    )
-
-                    db.commit()
-
-        except Exception as save_exc:
-            db.rollback()
-
-            print(
-                f"[outbox-worker] failed to persist "
-                f"delivery failure "
-                f"delivery_id={delivery_id} "
-                f"error={save_exc}"
-            )
+        persist_delivery_failure(
+            delivery_id=delivery_id,
+            error=exc,
+        )
 
         print(
             f"[outbox-worker] delivery error "
             f"delivery_id={delivery_id} "
             f"error={exc}"
+        )
+
+    finally:
+        db.close()
+
+def persist_delivery_failure(
+        delivery_id: int,
+        error: Exception,
+) -> None:
+    db = SessionLocal()
+
+    try:
+        delivery_repository = (
+            ServiceFactory.create_event_delivery_repository(db)
+        )
+
+        delivery = delivery_repository.find_by_id(delivery_id)
+
+        if delivery is None:
+            return
+
+        delivery.attempt_count += 1
+        delivery.last_error = str(error)[:1000]
+
+        max_attempts = config_service.get_max_delivery_attempts()
+
+        if delivery.attempt_count >= max_attempts:
+            delivery.status = DeliveryStatus.DEAD_LETTER
+        else:
+            delivery.status = DeliveryStatus.FAILED
+
+        delivery_repository.save(delivery)
+        db.commit()
+
+    except Exception as save_exc:
+        db.rollback()
+
+        print(
+            f"[outbox-worker] failed to persist "
+            f"delivery failure "
+            f"delivery_id={delivery_id} "
+            f"error={save_exc}"
         )
 
     finally:
@@ -151,7 +152,11 @@ def deliver_pending_deliveries() -> None:
 
     try:
         delivery_repository = ServiceFactory.create_event_delivery_repository(db)
-        deliveries = delivery_repository.find_pending()
+        max_attempts = config_service.get_max_delivery_attempts()
+
+        deliveries = delivery_repository.find_pending_and_retryable(
+            max_attempts=max_attempts,
+        )
 
         delivery_ids = [
             delivery.id

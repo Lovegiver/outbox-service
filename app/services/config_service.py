@@ -28,3 +28,17 @@ class ConfigService:
             .get("worker", {})
             .get("interval_seconds", 10)
         )
+
+    def get_delivery_timeout_seconds(self) -> int:
+        return int(
+            self.config
+            .get("delivery", {})
+            .get("timeout_seconds", 5)
+        )
+
+    def get_retry_delay_seconds(self) -> int:
+        return int(
+            self.config
+            .get("delivery", {})
+            .get("retry_delay_seconds", 30)
+        )

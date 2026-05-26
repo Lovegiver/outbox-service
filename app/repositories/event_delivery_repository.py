@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
 
 from app.core.delivery_status import DeliveryStatus
@@ -38,3 +38,27 @@ class EventDeliveryRepository:
         )
 
         return self.db.execute(statement).scalar_one_or_none()
+
+    def find_pending_and_retryable(
+            self,
+            max_attempts: int,
+    ) -> list[EventDelivery]:
+        statement = (
+            select(EventDelivery)
+            .where(
+                or_(
+                    EventDelivery.status == DeliveryStatus.PENDING,
+
+                    and_(
+                        EventDelivery.status == DeliveryStatus.FAILED,
+                        EventDelivery.attempt_count < max_attempts,
+                    ),
+                )
+            )
+        )
+
+        return list(
+            self.db.execute(statement)
+            .scalars()
+            .all()
+        )

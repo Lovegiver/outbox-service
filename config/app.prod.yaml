@@ -1,5 +1,7 @@
 delivery:
   max_attempts: 5
+  timeout_seconds: 10
+  retry_delay_seconds: 300
 
 worker:
   interval_seconds: 300
