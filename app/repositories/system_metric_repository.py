@@ -218,7 +218,25 @@ class SystemMetricRepository:
             status=EventStatus.ROUTED,
         )
 
-    def find_latest_metrics(
+    def find_latest_metrics(self) -> list[SystemMetric]:
+        statement = (
+            select(SystemMetric)
+            .where(
+                SystemMetric.computed_at.in_(
+                    select(func.max(SystemMetric.computed_at))
+                    .group_by(SystemMetric.metric_code)
+                )
+            )
+            .order_by(SystemMetric.metric_code)
+        )
+
+        return list(
+            self.db.execute(statement)
+            .scalars()
+            .all()
+        )
+
+    def find_all_metrics(
             self,
     ) -> list[SystemMetric]:
         statement = (

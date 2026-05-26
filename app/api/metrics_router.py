@@ -10,17 +10,7 @@ router = APIRouter(
 )
 
 
-@router.get("")
-def get_metrics(
-        db: Session = Depends(get_db),
-):
-    repository = (
-        ServiceFactory
-        .create_system_metric_repository(db)
-    )
-
-    metrics = repository.find_latest_metrics()
-
+def serialize_metrics(metrics):
     return [
         {
             "metric_code": metric.metric_code,
@@ -31,3 +21,31 @@ def get_metrics(
         }
         for metric in metrics
     ]
+
+
+@router.get("")
+def get_metrics(
+        db: Session = Depends(get_db),
+):
+    repository = (
+        ServiceFactory
+        .create_system_metric_repository(db)
+    )
+
+    metrics = repository.find_all_metrics()
+
+    return serialize_metrics(metrics)
+
+
+@router.get("/latest")
+def get_latest_metrics(
+        db: Session = Depends(get_db),
+):
+    repository = (
+        ServiceFactory
+        .create_system_metric_repository(db)
+    )
+
+    metrics = repository.find_latest_metrics()
+
+    return serialize_metrics(metrics)
