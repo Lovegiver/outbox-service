@@ -185,9 +185,9 @@ def process_outbox() -> None:
         )
 
         metric_repository.update_dead_letter_metric()
-        metric_repository.update_dead_letter_metric()
         metric_repository.update_delivered_metric()
         metric_repository.update_retry_metric()
+        metric_repository.update_event_routed_metric()
 
         db.commit()
 

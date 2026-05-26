@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, UTC
 
+from app.core.event_status import EventStatus
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core.delivery_status import DeliveryStatus
-from app.models import Project, EventType
+from app.models import Project, EventType, Event
 from app.models.event_delivery import EventDelivery
 from app.models.system_metric import SystemMetric
 
@@ -107,6 +108,25 @@ class SystemMetricRepository:
 
         self.db.execute(statement)
 
+    def _update_event_metric(
+            self,
+            metric_code: str,
+            status: EventStatus,
+    ) -> None:
+        count = (
+            self.db.execute(
+                select(func.count())
+                .select_from(Event)
+                .where(Event.status == status)
+            )
+            .scalar_one()
+        )
+
+        self._upsert_metric(
+            metric_code=metric_code,
+            value=int(count),
+        )
+
     def update_dead_letter_metric(
             self,
     ) -> None:
@@ -192,4 +212,8 @@ class SystemMetricRepository:
             value=retry_count,
         )
 
-    
+    def update_event_routed_metric(self) -> None:
+        self._update_event_metric(
+            metric_code="event.routed.total",
+            status=EventStatus.ROUTED,
+        )
