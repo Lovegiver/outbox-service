@@ -5,3 +5,9 @@ delivery:
 
 worker:
   interval_seconds: 10
+
+security:
+  jwt:
+    secret_key: "replace-with-long-random-secret"
+    algorithm: "HS256"
+    access_token_expire_minutes: 600

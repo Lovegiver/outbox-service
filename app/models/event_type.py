@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.metrics_token import MetricsToken
     from app.models.event import Event
     from app.models.project import Project
     from app.models.route_definition import RouteDefinition
@@ -73,6 +74,11 @@ class EventType(Base):
     )
 
     events: Mapped[list[Event]] = relationship(
+        back_populates="event_type",
+        cascade="all, delete-orphan",
+    )
+
+    metrics_tokens: Mapped[list["MetricsToken"]] = relationship(
         back_populates="event_type",
         cascade="all, delete-orphan",
     )

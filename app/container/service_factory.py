@@ -1,11 +1,14 @@
-from app.repositories.system_metric_repository import SystemMetricRepository
-from sqlalchemy.orm import Session
-
-from app.repositories.event_repository import EventRepository
 from app.repositories.event_delivery_repository import EventDeliveryRepository
+from app.repositories.event_repository import EventRepository
+from app.repositories.project_member_repository import (
+    ProjectMemberRepository,
+)
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.route_repository import RouteRepository
 from app.repositories.schema_repository import SchemaRepository
+from app.repositories.system_metric_repository import SystemMetricRepository
+from app.repositories.user_repository import UserRepository
+from app.services.auth_service import AuthService
 from app.services.config_service import ConfigService
 from app.services.delivery_service import DeliveryService
 from app.services.event_service import EventService
@@ -14,7 +17,11 @@ from app.services.route_service import RouteService
 from app.services.routing_service import RoutingService
 from app.services.schema_service import SchemaService
 from app.services.schema_validation_service import SchemaValidationService
+from sqlalchemy.orm import Session
 
+
+# Ce fichier construit les objets métier Python
+# Il ne connait pas FastAPI et est utilisable sans lui
 
 class ServiceFactory:
     config_service = ConfigService()
@@ -84,3 +91,19 @@ class ServiceFactory:
             db: Session,
     ) -> SystemMetricRepository:
         return SystemMetricRepository(db)
+
+    @classmethod
+    def create_auth_service(
+            cls,
+            db: Session,
+    ) -> AuthService:
+        user_repository = UserRepository(db)
+
+        project_member_repository = (
+            ProjectMemberRepository(db)
+        )
+
+        return AuthService(
+            user_repository=user_repository,
+            project_member_repository=project_member_repository,
+        )

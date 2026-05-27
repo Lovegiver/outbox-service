@@ -1,3 +1,6 @@
+from app.core.project_permission import ProjectPermission
+from app.dependencies import require_project_permission
+from app.models import UserAccount
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -30,7 +33,14 @@ def get_event_type_service(
 )
 def create_event_type(
     payload: EventTypeCreate,
-    service: EventTypeService = Depends(get_event_type_service),
+    _: UserAccount = Depends(
+        require_project_permission(
+            ProjectPermission.EVENT_TYPE_WRITE
+        )
+    ),
+    service: EventTypeService = Depends(
+        get_event_type_service
+    ),
 ):
     try:
         return service.create_event_type(payload)
@@ -58,7 +68,14 @@ def create_event_type(
 )
 def list_event_types_by_project(
     project_id: int,
-    service: EventTypeService = Depends(get_event_type_service),
+    _: UserAccount = Depends(
+        require_project_permission(
+            ProjectPermission.EVENT_TYPE_READ
+        )
+    ),
+    service: EventTypeService = Depends(
+        get_event_type_service
+    ),
 ):
     try:
         return service.list_by_project(project_id)

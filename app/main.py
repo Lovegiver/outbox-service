@@ -15,6 +15,7 @@ from app.api.admin.event_type_router import (
 from app.api.admin.project_api import router as admin_project_router
 from app.api.admin.schema_api import router as admin_schema_router
 from app.api.admin.route_api import router as admin_route_router
+from app.api.auth_router import router as auth_router
 from app.dependencies import get_event_service
 from app.schemas.event_schema import EventIn, EventReceived
 from app.services.event_service import EventService
@@ -41,6 +42,7 @@ app.include_router(admin_route_router)
 app.include_router(event_type_router)
 app.include_router(contracts_router)
 app.include_router(metrics_router)
+app.include_router(auth_router)
 
 
 @app.get("/health")

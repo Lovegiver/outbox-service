@@ -8,6 +8,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.api_key import ApiKey
+    from app.models.metrics_token import MetricsToken
+    from app.models.project_member import ProjectMember
     from app.models.event import Event
     from app.models.event_type import EventType
 
@@ -45,6 +48,21 @@ class Project(Base):
     )
 
     events: Mapped[list[Event]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    members: Mapped[list["ProjectMember"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    api_keys: Mapped[list["ApiKey"]] = relationship(
+        back_populates="project",
+        cascade="all, delete-orphan",
+    )
+
+    metrics_tokens: Mapped[list["MetricsToken"]] = relationship(
         back_populates="project",
         cascade="all, delete-orphan",
     )
