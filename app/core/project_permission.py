@@ -3,6 +3,7 @@ from enum import StrEnum
 
 class ProjectPermission(StrEnum):
     PROJECT_READ = "project:read"
+    PROJECT_WRITE = "project:write"
 
     EVENT_TYPE_READ = "event_type:read"
     EVENT_TYPE_WRITE = "event_type:write"

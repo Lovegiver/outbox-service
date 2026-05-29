@@ -3,20 +3,27 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from app.api.admin.api_key_router import (
+    router as api_key_router,
+)
+from app.api.admin.event_type_router import (
+    router as event_type_router
+)
+from app.api.admin.project_api import router as admin_project_router
+from app.api.admin.route_api import router as admin_route_router
+from app.api.admin.schema_api import router as admin_schema_router
+from app.api.auth_router import router as auth_router
 from app.api.contracts_router import (
     router as contracts_router
 )
 from app.api.metrics_router import (
     router as metrics_router
 )
-from app.api.admin.event_type_router import (
-    router as event_type_router
+from app.dependencies import (
+    get_current_api_key,
+    get_event_service,
 )
-from app.api.admin.project_api import router as admin_project_router
-from app.api.admin.schema_api import router as admin_schema_router
-from app.api.admin.route_api import router as admin_route_router
-from app.api.auth_router import router as auth_router
-from app.dependencies import get_event_service
+from app.models.api_key import ApiKey
 from app.schemas.event_schema import EventIn, EventReceived
 from app.services.event_service import EventService
 from app.worker import start_worker, stop_worker
@@ -43,6 +50,7 @@ app.include_router(event_type_router)
 app.include_router(contracts_router)
 app.include_router(metrics_router)
 app.include_router(auth_router)
+app.include_router(api_key_router)
 
 
 @app.get("/health")
@@ -53,10 +61,18 @@ def health():
     }
 
 
-@app.post("/events", response_model=EventReceived)
+@app.post(
+    "/events",
+    response_model=EventReceived,
+)
 def receive_event(
     event: EventIn,
-    service: EventService = Depends(get_event_service),
+    _: ApiKey = Depends(
+        get_current_api_key
+    ),
+    service: EventService = Depends(
+        get_event_service
+    ),
 ):
     try:
         return service.receive_event(event)

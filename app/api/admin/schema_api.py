@@ -1,12 +1,13 @@
+from app.container.service_factory import ServiceFactory
+from app.core.project_permission import ProjectPermission
+from app.database import get_db
+from app.dependencies import require_event_type_permission
+from app.models import UserAccount
+from app.schemas.schema_definition_schema import (
+    SchemaDefinitionCreate, SchemaDefinitionRead,
+)
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-
-from app.container.service_factory import ServiceFactory
-from app.database import get_db
-from app.schemas.schema_definition_schema import (
-    SchemaDefinitionCreate,
-    SchemaDefinitionRead,
-)
 
 router = APIRouter(
     prefix="/api/admin/event-types/{event_type_id}/schemas",
@@ -18,6 +19,11 @@ router = APIRouter(
 def create_schema(
     event_type_id: int,
     request: SchemaDefinitionCreate,
+    _: UserAccount = Depends(
+        require_event_type_permission(
+            ProjectPermission.SCHEMA_WRITE
+        )
+    ),
     db: Session = Depends(get_db),
 ):
     service = ServiceFactory.create_schema_service(db)
@@ -33,6 +39,11 @@ def create_schema(
 @router.get("", response_model=list[SchemaDefinitionRead])
 def list_active_schemas(
     event_type_id: int,
+    _: UserAccount = Depends(
+        require_event_type_permission(
+            ProjectPermission.SCHEMA_READ
+        )
+    ),
     db: Session = Depends(get_db),
 ):
     service = ServiceFactory.create_schema_service(db)

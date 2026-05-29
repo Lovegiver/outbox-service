@@ -1,5 +1,8 @@
 from app.container.service_factory import ServiceFactory
+from app.core.project_permission import ProjectPermission
 from app.database import get_db
+from app.dependencies import require_event_type_permission
+from app.models import UserAccount
 from app.schemas.route_definition_schema import (
     RouteDefinitionCreateRequest,
     RouteDefinitionUpdateRequest,
@@ -18,6 +21,11 @@ router = APIRouter(
 def create_route(
     event_type_id: int,
     request: RouteDefinitionCreateRequest,
+    _: UserAccount = Depends(
+        require_event_type_permission(
+            ProjectPermission.ROUTE_WRITE
+        )
+    ),
     db: Session = Depends(get_db),
 ):
     service = ServiceFactory.create_route_service(db)
@@ -33,6 +41,11 @@ def create_route(
 @router.get("", response_model=list[RouteDefinitionResponse])
 def list_event_type_routes(
     event_type_id: int,
+    _: UserAccount = Depends(
+        require_event_type_permission(
+            ProjectPermission.ROUTE_READ
+        )
+    ),
     db: Session = Depends(get_db),
 ):
     service = ServiceFactory.create_route_service(db)
@@ -49,6 +62,11 @@ def update_route(
     event_type_id: int,
     route_id: int,
     request: RouteDefinitionUpdateRequest,
+    _: UserAccount = Depends(
+        require_event_type_permission(
+            ProjectPermission.ROUTE_WRITE
+        )
+    ),
     db: Session = Depends(get_db),
 ):
     service = ServiceFactory.create_route_service(db)

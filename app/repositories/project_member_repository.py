@@ -12,6 +12,17 @@ class ProjectMemberRepository:
     ):
         self.db = db
 
+    def create(
+            self,
+            membership: ProjectMember,
+    ) -> ProjectMember:
+
+        self.db.add(membership)
+        self.db.flush()
+        self.db.refresh(membership)
+
+        return membership
+
     def find_by_project_and_user(
         self,
         project_id: int,

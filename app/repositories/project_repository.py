@@ -2,6 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 
 
 class ProjectRepository:
@@ -15,7 +16,7 @@ class ProjectRepository:
     ) -> Project:
 
         self.db.add(project)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(project)
 
         return project
@@ -68,7 +69,7 @@ class ProjectRepository:
         project: Project
     ) -> Project:
 
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(project)
 
         return project
@@ -88,4 +89,27 @@ class ProjectRepository:
     ) -> None:
 
         self.db.delete(project)
-        self.db.commit()
+        self.db.flush()
+
+    def list_by_user_id(
+            self,
+            user_id: int,
+    ) -> list[Project]:
+
+        statement = (
+            select(Project)
+            .join(
+                ProjectMember,
+                ProjectMember.project_id == Project.id,
+            )
+            .where(
+                ProjectMember.user_id == user_id,
+            )
+            .order_by(Project.id)
+        )
+
+        return list(
+            self.db.execute(
+                statement
+            ).scalars().all()
+        )
