@@ -1,6 +1,7 @@
 from app.container.service_factory import ServiceFactory
 from app.core.delivery_status import DeliveryStatus
 from app.core.event_status import EventStatus
+from app.core.logging import logger
 from app.database import SessionLocal
 from app.models import EventDelivery
 from app.services.config_service import ConfigService
@@ -44,7 +45,7 @@ def route_received_events() -> None:
 
     except Exception as exc:
         db.rollback()
-        print(f"[outbox-worker] routing error={exc}")
+        logger.info(f"[OB1-worker] routing error={exc}")
 
     finally:
         db.close()
@@ -63,8 +64,8 @@ def deliver_one_delivery(delivery_id: int) -> None:
         delivery = delivery_repository.find_by_id(delivery_id)
 
         if delivery is None:
-            print(
-                f"[outbox-worker] delivery not found "
+            logger.info(
+                f"[OB1-worker] delivery not found "
                 f"delivery_id={delivery_id}"
             )
             return
@@ -95,8 +96,8 @@ def deliver_one_delivery(delivery_id: int) -> None:
             error=exc,
         )
 
-        print(
-            f"[outbox-worker] delivery error "
+        logger.info(
+            f"[OB1-worker] delivery error "
             f"delivery_id={delivery_id} "
             f"error={exc}"
         )
@@ -136,8 +137,8 @@ def persist_delivery_failure(
     except Exception as save_exc:
         db.rollback()
 
-        print(
-            f"[outbox-worker] failed to persist "
+        logger.info(
+            f"[OB1-worker] failed to persist "
             f"delivery failure "
             f"delivery_id={delivery_id} "
             f"error={save_exc}"
@@ -171,7 +172,7 @@ def deliver_pending_deliveries() -> None:
 
 
 def process_outbox() -> None:
-    print("[outbox-worker] cycle started")
+    logger.info("[OB1-worker] cycle started")
 
     route_received_events()
     deliver_pending_deliveries()
@@ -194,14 +195,14 @@ def process_outbox() -> None:
     except Exception as exc:
         db.rollback()
 
-        print(
-            f"[outbox-worker] metric update error={exc}"
+        logger.info(
+            f"[OB1-worker] metric update error={exc}"
         )
 
     finally:
         db.close()
 
-    print("[outbox-worker] cycle finished")
+    logger.info("[OB1-worker] cycle finished")
 
 
 def start_worker() -> None:
@@ -215,12 +216,12 @@ def start_worker() -> None:
         replace_existing=True,
     )
 
-    print(f"[outbox-worker] interval={interval}s")
+    logger.info(f"[OB1-worker] interval={interval}s")
 
     scheduler.start()
-    print("[outbox-worker] started")
+    logger.info("[OB1-worker] started")
 
 
 def stop_worker() -> None:
     scheduler.shutdown()
-    print("[outbox-worker] stopped")
+    logger.info("[OB1-worker] stopped")

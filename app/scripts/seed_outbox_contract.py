@@ -1,3 +1,4 @@
+from app.core.logging import logger
 from sqlalchemy import select
 
 from app.database import SessionLocal
@@ -154,10 +155,10 @@ def main():
 
         db.commit()
 
-        print("Outbox contract seeded")
-        print(f"project_id={project.id}")
-        print(f"event_type_id={event_type.id}")
-        print(f"schema_definition_id={schema_definition.id}")
+        logger.info("Outbox contract seeded")
+        logger.info(f"project_id={project.id}")
+        logger.info(f"event_type_id={event_type.id}")
+        logger.info(f"schema_definition_id={schema_definition.id}")
 
     except Exception:
         db.rollback()
