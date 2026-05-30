@@ -6,9 +6,8 @@ Revises: e143e4542c16
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "88391a903eb5"
 down_revision: Union[str, Sequence[str], None] = "e143e4542c16"

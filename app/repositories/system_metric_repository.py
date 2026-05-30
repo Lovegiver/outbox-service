@@ -1,14 +1,13 @@
 from datetime import datetime, timedelta, UTC
 
-from app.core.event_status import EventStatus
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
-
 from app.core.delivery_status import DeliveryStatus
+from app.core.event_status import EventStatus
 from app.models import Project, EventType, Event
 from app.models.event_delivery import EventDelivery
 from app.models.system_metric import SystemMetric
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 
 class SystemMetricRepository:

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, UTC
-import jwt
 
+import jwt
 from app.models.user_account import UserAccount
 
 

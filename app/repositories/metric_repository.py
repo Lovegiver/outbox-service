@@ -1,10 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-
 from app.models.event import Event
 from app.models.system_metric import SystemMetric
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 
 class MetricRepository:

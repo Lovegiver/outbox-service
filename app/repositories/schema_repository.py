@@ -1,8 +1,7 @@
 from app.models import EventType, Project
+from app.models.schema_definition import SchemaDefinition
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.models.schema_definition import SchemaDefinition
 
 
 class SchemaRepository:

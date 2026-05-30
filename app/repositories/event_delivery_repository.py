@@ -1,9 +1,8 @@
-from sqlalchemy import select, or_, and_
-from sqlalchemy.orm import Session
-
 from app.core.delivery_status import DeliveryStatus
 from app.models import EventDelivery
 from app.models.event import Event
+from sqlalchemy import select, or_, and_
+from sqlalchemy.orm import Session
 
 
 class EventDeliveryRepository:

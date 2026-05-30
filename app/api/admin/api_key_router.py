@@ -1,5 +1,3 @@
-from fastapi import APIRouter, Depends, status, HTTPException
-
 from app.core.project_permission import ProjectPermission
 from app.dependencies import (
     get_api_key_service,
@@ -12,7 +10,7 @@ from app.schemas.api_key_schema import (
     ApiKeyRead,
 )
 from app.services.api_key_service import ApiKeyService
-
+from fastapi import APIRouter, Depends, status, HTTPException
 
 router = APIRouter(
     prefix="/api/admin/projects/{project_id}/api-keys",

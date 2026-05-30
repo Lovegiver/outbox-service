@@ -1,11 +1,10 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from app.core.auth_enums import UserRole
+from app.database import Base
 from sqlalchemy import Boolean, DateTime, Enum, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.database import Base
-from app.core.auth_enums import UserRole
 
 if TYPE_CHECKING:
     from app.models.project_member import ProjectMember

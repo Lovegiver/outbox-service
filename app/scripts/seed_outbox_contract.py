@@ -1,11 +1,9 @@
 from app.core.logging import logger
-from sqlalchemy import select
-
 from app.database import SessionLocal
 from app.models.event_type import EventType
 from app.models.project import Project
 from app.models.schema_definition import SchemaDefinition
-
+from sqlalchemy import select
 
 OUTBOX_PROJECT_NAME = "OUTBOX"
 OUTBOX_EVENT_TYPE_CODE = "OUTBOX_EVENT"

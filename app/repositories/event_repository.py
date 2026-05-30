@@ -1,10 +1,9 @@
 from uuid import UUID
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
 from app.core.event_status import EventStatus
 from app.models.event import Event
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 
 class EventRepository:

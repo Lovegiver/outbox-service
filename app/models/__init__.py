@@ -22,4 +22,5 @@ __all__ = [
     "MetricsToken",
     "ProjectMember",
     "UserAccount",
+    "ProjectMember"
 ]

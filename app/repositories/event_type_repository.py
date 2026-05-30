@@ -1,7 +1,6 @@
+from app.models.event_type import EventType
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.models.event_type import EventType
 
 
 class EventTypeRepository:

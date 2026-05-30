@@ -3,8 +3,8 @@ from app.core.auth_enums import UserRole
 from app.models import UserAccount
 from app.models.project import Project
 from app.models.project_member import ProjectMember
-from app.repositories.project_repository import ProjectRepository
 from app.repositories.project_member_repository import ProjectMemberRepository
+from app.repositories.project_repository import ProjectRepository
 
 
 class ProjectService:

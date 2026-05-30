@@ -1,7 +1,6 @@
+from app.models.route_definition import RouteDefinition
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.models.route_definition import RouteDefinition
 
 
 class RouteRepository:

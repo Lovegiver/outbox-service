@@ -1,12 +1,11 @@
 from uuid import uuid4, UUID
 
-from sqlalchemy.orm import Session
-
 from app.core.event_status import EventStatus
 from app.models.event import Event
 from app.repositories.event_repository import EventRepository
 from app.schemas.event_schema import EventIn, EventReceived
 from app.services.schema_validation_service import SchemaValidationService
+from sqlalchemy.orm import Session
 
 
 class EventService:

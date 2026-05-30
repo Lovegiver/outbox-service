@@ -1,6 +1,5 @@
-from jsonschema import ValidationError, validate
-
 from app.repositories.schema_repository import SchemaRepository
+from jsonschema import ValidationError, validate
 
 
 class SchemaValidationService:

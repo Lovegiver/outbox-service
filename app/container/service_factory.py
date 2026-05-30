@@ -1,27 +1,27 @@
-from app.repositories.event_type_repository import EventTypeRepository
-from app.services.event_type_service import EventTypeService
-from sqlalchemy.orm import Session
-
+from app.repositories.api_key_repository import ApiKeyRepository
 from app.repositories.event_delivery_repository import EventDeliveryRepository
 from app.repositories.event_repository import EventRepository
+from app.repositories.event_type_repository import EventTypeRepository
 from app.repositories.project_member_repository import ProjectMemberRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.route_repository import RouteRepository
 from app.repositories.schema_repository import SchemaRepository
 from app.repositories.system_metric_repository import SystemMetricRepository
 from app.repositories.user_repository import UserRepository
+from app.services.api_key_service import ApiKeyService
 from app.services.auth_service import AuthService
 from app.services.config_service import ConfigService
 from app.services.dead_letter_service import DeadLetterService
 from app.services.delivery_service import DeliveryService
 from app.services.event_service import EventService
+from app.services.event_type_service import EventTypeService
+from app.services.project_member_service import ProjectMemberService
 from app.services.project_service import ProjectService
 from app.services.route_service import RouteService
 from app.services.routing_service import RoutingService
 from app.services.schema_service import SchemaService
 from app.services.schema_validation_service import SchemaValidationService
-from app.repositories.api_key_repository import ApiKeyRepository
-from app.services.api_key_service import ApiKeyService
+from sqlalchemy.orm import Session
 
 
 # Ce fichier construit les objets métier Python
@@ -146,3 +146,13 @@ class ServiceFactory:
             repository=EventDeliveryRepository(db),
         )
 
+    @classmethod
+    def create_project_member_service(
+        cls,
+        db: Session,
+    ) -> ProjectMemberService:
+        return ProjectMemberService(
+            project_repository=ProjectRepository(db),
+            project_member_repository=ProjectMemberRepository(db),
+            user_repository=UserRepository(db),
+        )

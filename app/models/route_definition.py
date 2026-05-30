@@ -1,11 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint, JSON
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import TYPE_CHECKING
 
 from app.core.auth_type import AuthType
 from app.database import Base
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint, JSON
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from app.models.event_type import EventType

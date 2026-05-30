@@ -1,6 +1,3 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-
 from app.core.auth_enums import UserRole
 from app.core.project_permission import ProjectPermission
 from app.database import get_db
@@ -11,6 +8,8 @@ from app.repositories.project_repository import ProjectRepository
 from app.schemas.event_type_schema import EventTypeCreate, EventTypeRead
 from app.services.auth_service import AuthService
 from app.services.event_type_service import EventTypeService
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
 router = APIRouter(
     prefix="/api/admin/event-types",

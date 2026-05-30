@@ -1,6 +1,6 @@
 from pathlib import Path
-import yaml
 
+import yaml
 from app.schemas.routing_schema import DestinationConfig
 from app.schemas.routing_schema import RoutingConfig
 
