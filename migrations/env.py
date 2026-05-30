@@ -2,6 +2,11 @@ from logging.config import fileConfig
 
 from alembic import context
 from app.database import Base, DATABASE_URL
+
+# Required for Alembic autogenerate.
+# Imports all SQLAlchemy models so they are registered in Base.metadata.
+import app.models
+
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
