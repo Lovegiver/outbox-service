@@ -12,6 +12,7 @@ from app.repositories.system_metric_repository import SystemMetricRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.config_service import ConfigService
+from app.services.dead_letter_service import DeadLetterService
 from app.services.delivery_service import DeliveryService
 from app.services.event_service import EventService
 from app.services.project_service import ProjectService
@@ -134,3 +135,14 @@ class ServiceFactory:
         return ApiKeyService(
             api_key_repository=api_key_repository,
         )
+
+    @classmethod
+    def create_dead_letter_service(
+            cls,
+            db: Session,
+    ) -> DeadLetterService:
+        return DeadLetterService(
+            db=db,
+            repository=EventDeliveryRepository(db),
+        )
+

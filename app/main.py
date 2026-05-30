@@ -6,6 +6,9 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app.api.admin.api_key_router import (
     router as api_key_router,
 )
+from app.api.admin.dead_letter_router import (
+    router as dead_letter_router
+)
 from app.api.admin.event_type_router import (
     router as event_type_router
 )
@@ -51,6 +54,7 @@ app.include_router(contracts_router)
 app.include_router(metrics_router)
 app.include_router(auth_router)
 app.include_router(api_key_router)
+app.include_router(dead_letter_router)
 
 
 @app.get("/health")

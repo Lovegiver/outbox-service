@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.delivery_status import DeliveryStatus
 from app.models import EventDelivery
+from app.models.event import Event
 
 
 class EventDeliveryRepository:
@@ -62,3 +63,42 @@ class EventDeliveryRepository:
             .scalars()
             .all()
         )
+
+    def find_dead_letters(
+            self,
+            limit: int = 100,
+    ) -> list[EventDelivery]:
+        statement = (
+            select(EventDelivery)
+            .where(
+                EventDelivery.status
+                == DeliveryStatus.DEAD_LETTER
+            )
+            .order_by(
+                EventDelivery.updated_at.desc()
+            )
+            .limit(limit)
+        )
+
+        return list(
+            self.db.execute(statement)
+            .scalars()
+            .all()
+        )
+
+    def find_dead_letters_by_project(
+            self,
+            project_id: int,
+            limit: int = 100,
+    ) -> list[EventDelivery]:
+        statement = (
+            select(EventDelivery)
+            .join(Event)
+            .where(Event.project_id == project_id)
+            .where(EventDelivery.status == DeliveryStatus.DEAD_LETTER)
+            .order_by(EventDelivery.updated_at.desc())
+            .limit(limit)
+        )
+
+        return list(self.db.execute(statement).scalars().all())
+
