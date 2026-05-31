@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.models.project import Project
     from app.models.route_definition import RouteDefinition
     from app.models.schema_definition import SchemaDefinition
+    from app.models.metric_definition import MetricDefinition
 
 
 class EventType(Base):
@@ -78,6 +79,11 @@ class EventType(Base):
     )
 
     metrics_tokens: Mapped[list["MetricsToken"]] = relationship(
+        back_populates="event_type",
+        cascade="all, delete-orphan",
+    )
+
+    metric_definitions: Mapped[list["MetricDefinition"]] = relationship(
         back_populates="event_type",
         cascade="all, delete-orphan",
     )

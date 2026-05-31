@@ -2,6 +2,9 @@ from app.models.api_key import ApiKey
 from app.models.event import Event
 from app.models.event_delivery import EventDelivery
 from app.models.event_type import EventType
+from app.models.metric_definition import MetricDefinition
+from app.models.metric_definition_version import MetricDefinitionVersion
+from app.models.metric_definition_version_schema import MetricDefinitionVersionSchema
 from app.models.metrics_token import MetricsToken
 from app.models.project import Project
 from app.models.project_member import ProjectMember
@@ -22,4 +25,7 @@ __all__ = [
     "MetricsToken",
     "ProjectMember",
     "UserAccount",
+    "MetricDefinition",
+    "MetricDefinitionVersion",
+    "MetricDefinitionVersionSchema",
 ]
