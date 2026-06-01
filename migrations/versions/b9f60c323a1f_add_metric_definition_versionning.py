@@ -35,20 +35,22 @@ def upgrade() -> None:
     schema='outbox'
     )
     op.create_index(op.f('ix_outbox_metric_definition_event_type_id'), 'metric_definition', ['event_type_id'], unique=False, schema='outbox')
+
     op.create_table('metric_definition_version',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('metric_definition_id', sa.BigInteger(), nullable=False),
-    sa.Column('yaml_version_client', sa.String(length=30), nullable=True),
-    sa.Column('yaml_version_internal', sa.String(length=30), nullable=False),
+    sa.Column('yaml_version_number', sa.Integer(), nullable=False),
+    sa.Column('yaml_version_label', sa.String(length=30), nullable=True),
     sa.Column('yaml_content', sa.Text(), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['metric_definition_id'], ['outbox.metric_definition.id'], ),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('metric_definition_id', 'yaml_version_internal', name='uq_metric_definition_yaml_internal_version'),
+    sa.UniqueConstraint('metric_definition_id', 'yaml_version_number', name='uq_metric_definition_yaml_version_number'),
     schema='outbox'
     )
     op.create_index(op.f('ix_outbox_metric_definition_version_metric_definition_id'), 'metric_definition_version', ['metric_definition_id'], unique=False, schema='outbox')
+
     op.create_table('metric_definition_version_schema',
     sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
     sa.Column('metric_definition_version_id', sa.BigInteger(), nullable=False),

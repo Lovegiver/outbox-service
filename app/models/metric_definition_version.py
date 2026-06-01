@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from app.database import Base
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -17,8 +17,8 @@ class MetricDefinitionVersion(Base):
     __table_args__ = (
         UniqueConstraint(
             "metric_definition_id",
-            "yaml_version_internal",
-            name="uq_metric_definition_yaml_internal_version",
+            "yaml_version_number",
+            name="uq_metric_definition_yaml_version_number",
         ),
         {"schema": "outbox"},
     )
@@ -32,12 +32,14 @@ class MetricDefinitionVersion(Base):
         index=True,
     )
 
-    yaml_version_client: Mapped[str | None] = mapped_column(String(30), nullable=True)
-
-    yaml_version_internal: Mapped[str] = mapped_column(
-        String(30),
+    yaml_version_number: Mapped[int] = mapped_column(
+        Integer,
         nullable=False,
-        default="1.0",
+    )
+
+    yaml_version_label: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
     )
 
     yaml_content: Mapped[str] = mapped_column(Text, nullable=False)
