@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from app.models.event_type import EventType
+    from app.models.event import Event
 
 
 class SchemaDefinition(Base):
@@ -57,3 +58,7 @@ class SchemaDefinition(Base):
     )
 
     event_type: Mapped[EventType] = relationship(back_populates="schemas")
+
+    events: Mapped[list["Event"]] = relationship(
+        back_populates="schema_definition",
+    )

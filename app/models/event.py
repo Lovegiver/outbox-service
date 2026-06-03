@@ -1,18 +1,20 @@
 from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from app.database import Base
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+
 
 if TYPE_CHECKING:
     from app.models.event_type import EventType
     from app.models.project import Project
     from app.models.event_delivery import EventDelivery
+    from app.models.schema_definition import SchemaDefinition
 
 
 class Event(Base):
@@ -50,6 +52,12 @@ class Event(Base):
         server_default="1.0",
     )
 
+    schema_definition_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("outbox.schema_definition.id"),
+        nullable=False,
+    )
+
     payload: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
@@ -85,4 +93,8 @@ class Event(Base):
     deliveries: Mapped[list[EventDelivery]] = relationship(
         back_populates="event",
         cascade="all, delete-orphan",
+    )
+
+    schema_definition: Mapped["SchemaDefinition"] = relationship(
+        back_populates="events",
     )

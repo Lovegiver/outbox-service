@@ -1,3 +1,5 @@
+from sqlalchemy.orm import Session
+
 from app.repositories.api_key_repository import ApiKeyRepository
 from app.repositories.event_delivery_repository import EventDeliveryRepository
 from app.repositories.event_repository import EventRepository
@@ -21,7 +23,40 @@ from app.services.route_service import RouteService
 from app.services.routing_service import RoutingService
 from app.services.schema_service import SchemaService
 from app.services.schema_validation_service import SchemaValidationService
-from sqlalchemy.orm import Session
+from app.repositories.analytical_observation_repository import (
+    AnalyticalObservationRepository,
+)
+from app.repositories.metric_definition_version_repository import (
+    MetricDefinitionVersionRepository,
+)
+from app.repositories.metric_definition_version_schema_repository import (
+    MetricDefinitionVersionSchemaRepository,
+)
+from app.repositories.processing_chain_repository import (
+    ProcessingChainRepository,
+)
+from app.repositories.processing_plan_repository import (
+    ProcessingPlanRepository,
+)
+
+from app.services.metric_definition_version_schema_service import (
+    MetricDefinitionVersionSchemaService,
+)
+from app.services.metrics_extraction_service import (
+    MetricsExtractionService,
+)
+from app.services.processing_chain_activation_service import (
+    ProcessingChainActivationService,
+)
+from app.services.processing_chain_builder_service import (
+    ProcessingChainBuilderService,
+)
+from app.services.processing_plan_provider import (
+    ProcessingPlanProvider,
+)
+from app.services.metric_definition_admin_service import (
+    MetricDefinitionAdminService,
+)
 
 
 # Ce fichier construit les objets métier Python
@@ -51,6 +86,9 @@ class ServiceFactory:
             db=db,
             event_repository=event_repository,
             schema_validation_service=schema_validation_service,
+            metrics_extraction_service=(
+                    cls.create_metrics_extraction_service(db)
+            ),
         )
 
     @classmethod
@@ -156,3 +194,133 @@ class ServiceFactory:
             project_member_repository=ProjectMemberRepository(db),
             user_repository=UserRepository(db),
         )
+
+    @classmethod
+    def create_processing_chain_repository(
+        cls,
+        db: Session,
+    ) -> ProcessingChainRepository:
+        """
+        Create the repository responsible for ProcessingChain persistence.
+        """
+        return ProcessingChainRepository(db)
+
+    @classmethod
+    def create_processing_plan_repository(
+        cls,
+        db: Session,
+    ) -> ProcessingPlanRepository:
+        """
+        Create the repository responsible for ProcessingPlan persistence.
+        """
+        return ProcessingPlanRepository(db)
+
+    @classmethod
+    def create_processing_chain_builder_service(
+        cls,
+        db: Session,
+    ) -> ProcessingChainBuilderService:
+        """
+        Create the service responsible for building ProcessingChain snapshots.
+        """
+        return ProcessingChainBuilderService(
+            processing_chain_repository=(
+                cls.create_processing_chain_repository(db)
+            ),
+            processing_plan_repository=(
+                cls.create_processing_plan_repository(db)
+            ),
+            metric_definition_version_repository=(
+                MetricDefinitionVersionRepository(db)
+            ),
+        )
+
+    @classmethod
+    def create_processing_chain_activation_service(
+        cls,
+        db: Session,
+    ) -> ProcessingChainActivationService:
+        """
+        Create the service responsible for atomically activating
+        analytical processing chains.
+        """
+        return ProcessingChainActivationService(
+            db=db,
+            processing_chain_repository=(
+                cls.create_processing_chain_repository(db)
+            ),
+            processing_chain_builder_service=(
+                cls.create_processing_chain_builder_service(db)
+            ),
+        )
+
+    @classmethod
+    def create_processing_plan_provider(
+        cls,
+        db: Session,
+    ) -> ProcessingPlanProvider:
+        """
+        Create the runtime provider responsible for exposing compiled
+        analytical processing plans.
+        """
+        return ProcessingPlanProvider(
+            processing_chain_repository=(
+                cls.create_processing_chain_repository(db)
+            ),
+            processing_plan_repository=(
+                cls.create_processing_plan_repository(db)
+            ),
+        )
+
+    @classmethod
+    def create_metrics_extraction_service(
+        cls,
+        db: Session,
+    ) -> MetricsExtractionService:
+        """
+        Create the runtime analytical extraction service.
+        """
+        return MetricsExtractionService(
+            analytical_observation_repository=(
+                AnalyticalObservationRepository(db)
+            ),
+            processing_plan_provider=(
+                cls.create_processing_plan_provider(db)
+            ),
+        )
+
+    @classmethod
+    def create_metric_definition_version_schema_service(
+        cls,
+        db: Session,
+    ) -> MetricDefinitionVersionSchemaService:
+        """
+        Create the service responsible for validating and registering
+        YAML/schema compatibilities.
+        """
+        return MetricDefinitionVersionSchemaService(
+            db=db,
+            compatibility_repository=MetricDefinitionVersionSchemaRepository(db),
+            metric_definition_version_repository=MetricDefinitionVersionRepository(db),
+            schema_repository=SchemaRepository(db),
+            processing_chain_activation_service=(
+                cls.create_processing_chain_activation_service(db)
+            ),
+        )
+
+    @classmethod
+    def create_metric_definition_admin_service(
+        cls,
+        db: Session,
+    ) -> MetricDefinitionAdminService:
+        """
+        Create the administrative service used to manage metric definitions
+        and YAML metric definition versions.
+
+        Args:
+            db: SQLAlchemy session used by the service.
+
+        Returns:
+            A configured MetricDefinitionAdminService instance.
+        """
+        return MetricDefinitionAdminService(db)

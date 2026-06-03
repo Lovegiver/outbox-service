@@ -18,3 +18,4 @@ class ProjectPermission(StrEnum):
     API_KEY_WRITE = "api_key:write"
 
     METRICS_READ = "metrics:read"
+    METRICS_WRITE = "metrics:write"

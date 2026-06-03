@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+import yaml
+
+from app.metrics_engine.compiled_processing_plan import CompiledProcessingPlan
+from app.metrics_engine.metric_yaml_validator import validate_metric_yaml
+from app.repositories.processing_chain_repository import ProcessingChainRepository
+from app.repositories.processing_plan_repository import ProcessingPlanRepository
+
+
+class ProcessingPlanProvider:
+    """
+    Provides runtime-ready analytical processing plans.
+
+    This provider is the boundary between the persisted ProcessingChain /
+    ProcessingPlan configuration and the runtime metrics extraction engine.
+    In this first implementation, plans are compiled on demand from the database.
+    Later this class can transparently add an in-memory cache without changing
+    MetricsExtractionService.
+    """
+
+    def __init__(
+        self,
+        processing_chain_repository: ProcessingChainRepository,
+        processing_plan_repository: ProcessingPlanRepository,
+    ) -> None:
+        """
+        Initialize the provider.
+
+        Args:
+            processing_chain_repository: Repository used to find the active
+                ProcessingChain for an EventType and SchemaDefinition.
+            processing_plan_repository: Repository used to list active plans
+                attached to a ProcessingChain.
+        """
+        self.processing_chain_repository = processing_chain_repository
+        self.processing_plan_repository = processing_plan_repository
+
+    def get_active_plans(
+        self,
+        event_type_id: int,
+        schema_definition_id: int,
+    ) -> list[CompiledProcessingPlan]:
+        """
+        Return compiled analytical plans for an active processing chain.
+
+        Args:
+            event_type_id: EventType identifier of the incoming event.
+            schema_definition_id: SchemaDefinition identifier used to validate
+                the incoming event.
+
+        Returns:
+            A list of compiled plans. Returns an empty list when no active chain
+            exists for the provided scope.
+        """
+        active_chain = self.processing_chain_repository.find_active(
+            event_type_id=event_type_id,
+            schema_definition_id=schema_definition_id,
+        )
+
+        if active_chain is None:
+            return []
+
+        plans = self.processing_plan_repository.list_active_by_chain_id(
+            processing_chain_id=active_chain.id,
+        )
+
+        compiled_plans: list[CompiledProcessingPlan] = []
+
+        for plan in plans:
+            metric_yaml = yaml.safe_load(
+                plan.metric_definition_version.yaml_content
+            )
+
+            validated_metric_yaml = validate_metric_yaml(
+                metric_yaml=metric_yaml,
+                json_schema=active_chain.schema_definition.json_schema,
+            )
+
+            compiled_plans.append(
+                CompiledProcessingPlan(
+                    processing_chain_id=active_chain.id,
+                    metric_definition_id=plan.metric_definition_id,
+                    metric_definition_version_id=plan.metric_definition_version_id,
+                    validated_metric_yaml=validated_metric_yaml,
+                )
+            )
+
+        return compiled_plans

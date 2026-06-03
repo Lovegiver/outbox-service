@@ -32,6 +32,9 @@ from app.services.event_service import EventService
 from app.worker import start_worker, stop_worker
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from app.api.admin.metric_definition_router import (
+    router as metric_definition_router,
+)
 
 
 @asynccontextmanager
@@ -58,6 +61,8 @@ app.include_router(auth_router)
 app.include_router(api_key_router)
 app.include_router(dead_letter_router)
 app.include_router(project_member_router)
+app.include_router(metric_definition_router)
+app.include_router(metrics_router)
 
 
 @app.get("/health")

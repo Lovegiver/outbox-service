@@ -1,27 +1,41 @@
+from sqlalchemy.orm import Session
 from uuid import uuid4, UUID
 
 from app.core.event_status import EventStatus
 from app.models.event import Event
 from app.repositories.event_repository import EventRepository
 from app.schemas.event_schema import EventIn, EventReceived
+from app.services.metrics_extraction_service import (
+    MetricsExtractionService,
+)
 from app.services.schema_validation_service import SchemaValidationService
-from sqlalchemy.orm import Session
 
 
 class EventService:
+    """
+    Service responsible for receiving and managing Outbox events.
+
+    This service validates incoming payloads against active JSON schemas,
+    persists validated events, triggers analytical metric extraction,
+    and manages event lifecycle status transitions.
+    """
 
     def __init__(
         self,
         db: Session,
         event_repository: EventRepository,
         schema_validation_service: SchemaValidationService,
+        metrics_extraction_service: MetricsExtractionService,
     ):
         self.db = db
         self.event_repository = event_repository
         self.schema_validation_service = schema_validation_service
+        self.metrics_extraction_service = (
+            metrics_extraction_service
+        )
 
     def receive_event(self, event_in: EventIn) -> EventReceived:
-        self.schema_validation_service.validate_payload(
+        schema_definition = self.schema_validation_service.validate_payload(
             event_type_id=event_in.event_type_id,
             json_version_internal=event_in.json_version_internal,
             payload=event_in.payload,
@@ -31,12 +45,19 @@ class EventService:
             event_uuid=event_in.event_uuid or uuid4(),
             project_id=event_in.project_id,
             event_type_id=event_in.event_type_id,
+            schema_definition_id=schema_definition.id,
             json_version_internal=event_in.json_version_internal,
             payload=event_in.payload,
             status=EventStatus.RECEIVED.value,
         )
 
         saved_event = self.event_repository.save(event)
+
+        self.metrics_extraction_service.extract_and_persist_for_event(
+            saved_event
+        )
+
+        self.db.commit()
 
         return EventReceived.model_validate(saved_event)
 

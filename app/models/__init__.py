@@ -1,3 +1,4 @@
+from app.models.analytical_observation import AnalyticalObservation
 from app.models.api_key import ApiKey
 from app.models.event import Event
 from app.models.event_delivery import EventDelivery
@@ -6,6 +7,8 @@ from app.models.metric_definition import MetricDefinition
 from app.models.metric_definition_version import MetricDefinitionVersion
 from app.models.metric_definition_version_schema import MetricDefinitionVersionSchema
 from app.models.metrics_token import MetricsToken
+from app.models.processing_chain import ProcessingChain
+from app.models.processing_plan import ProcessingPlan
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.route_definition import RouteDefinition
@@ -28,4 +31,7 @@ __all__ = [
     "MetricDefinition",
     "MetricDefinitionVersion",
     "MetricDefinitionVersionSchema",
+    "AnalyticalObservation",
+    "ProcessingChain",
+    "ProcessingPlan",
 ]

@@ -1,3 +1,4 @@
+from app.models.schema_definition import SchemaDefinition
 from app.repositories.schema_repository import SchemaRepository
 from jsonschema import ValidationError, validate
 
@@ -11,7 +12,7 @@ class SchemaValidationService:
         event_type_id: int,
         json_version_internal: str,
         payload: dict,
-    ) -> None:
+    ) -> SchemaDefinition:
         schema_definition = (
             self.schema_repository.find_active_by_event_type_and_internal_version(
                 event_type_id=event_type_id,
@@ -32,3 +33,5 @@ class SchemaValidationService:
             )
         except ValidationError as exc:
             raise ValueError(f"Invalid payload: {exc.message}") from exc
+
+        return schema_definition
