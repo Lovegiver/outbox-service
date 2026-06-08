@@ -13,7 +13,7 @@ class EventRepository:
 
     def save(self, event: Event) -> Event:
         self.db.add(event)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(event)
         return event
 

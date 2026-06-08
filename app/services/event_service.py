@@ -53,11 +53,8 @@ class EventService:
 
         saved_event = self.event_repository.save(event)
 
-        self.metrics_extraction_service.extract_and_persist_for_event(
-            saved_event
-        )
-
         self.db.commit()
+        self.db.refresh(saved_event)
 
         return EventReceived.model_validate(saved_event)
 
