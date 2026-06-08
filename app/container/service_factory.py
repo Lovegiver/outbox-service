@@ -15,7 +15,7 @@ from app.services.auth_service import AuthService
 from app.services.config_service import ConfigService
 from app.services.dead_letter_service import DeadLetterService
 from app.services.delivery_service import DeliveryService
-from app.services.event_service import EventService
+from app.services.event_ingress_service import EventIngressService
 from app.services.event_type_service import EventTypeService
 from app.services.project_member_service import ProjectMemberService
 from app.services.project_service import ProjectService
@@ -68,10 +68,10 @@ class ServiceFactory:
     delivery_service = DeliveryService()
 
     @classmethod
-    def create_event_service(
+    def create_event_ingress_service(
             cls,
             db: Session,
-    ) -> EventService:
+    ) -> EventIngressService:
         event_repository = EventRepository(db)
 
         schema_repository = SchemaRepository(db)
@@ -82,7 +82,7 @@ class ServiceFactory:
             )
         )
 
-        return EventService(
+        return EventIngressService(
             db=db,
             event_repository=event_repository,
             schema_validation_service=schema_validation_service,

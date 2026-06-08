@@ -8,7 +8,7 @@ from app.models import UserAccount
 from app.models.api_key import ApiKey
 from app.services.api_key_service import ApiKeyService
 from app.services.auth_service import AuthService
-from app.services.event_service import EventService
+from app.services.event_ingress_service import EventIngressService
 from app.services.event_type_service import EventTypeService
 from app.services.jwt_service import JwtService
 from fastapi import Depends, HTTPException
@@ -77,10 +77,10 @@ def get_current_user(
     return user
 
 
-def get_event_service(
+def get_event_ingress_service(
         db: Session = Depends(get_db)
-) -> EventService:
-    return ServiceFactory.create_event_service(db)
+) -> EventIngressService:
+    return ServiceFactory.create_event_ingress_service(db)
 
 def require_admin(
     current_user: UserAccount = Depends(

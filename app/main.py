@@ -24,11 +24,11 @@ from app.api.metrics_router import (
 )
 from app.dependencies import (
     get_current_api_key,
-    get_event_service,
+    get_event_ingress_service,
 )
 from app.models.api_key import ApiKey
 from app.schemas.event_schema import EventIn, EventReceived
-from app.services.event_service import EventService
+from app.services.event_ingress_service import EventIngressService
 from app.worker import start_worker, stop_worker
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -82,8 +82,8 @@ def receive_event(
     _: ApiKey = Depends(
         get_current_api_key
     ),
-    service: EventService = Depends(
-        get_event_service
+    service: EventIngressService = Depends(
+        get_event_ingress_service
     ),
 ):
     try:

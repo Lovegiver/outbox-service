@@ -11,13 +11,18 @@ from app.services.metrics_extraction_service import (
 from app.services.schema_validation_service import SchemaValidationService
 
 
-class EventService:
+class EventIngressService:
     """
-    Service responsible for receiving and managing Outbox events.
+    Service responsible for ingesting incoming Outbox events.
 
-    This service validates incoming payloads against active JSON schemas,
-    persists validated events, triggers analytical metric extraction,
-    and manages event lifecycle status transitions.
+    This service is the transactional boundary of the ingress layer.
+    It validates the incoming event against the active client JSON schema,
+    persists the event with the RECEIVED status, commits the ingestion
+    transaction, and returns the persisted event representation.
+
+    It intentionally does not execute the secondary processing pipeline.
+    Metrics extraction, routing, delivery creation, retries, and dead-letter
+    management are handled asynchronously by the worker layer.
     """
 
     def __init__(
@@ -35,6 +40,23 @@ class EventService:
         )
 
     def receive_event(self, event_in: EventIn) -> EventReceived:
+        """
+            Validate and persist an incoming Outbox event.
+
+            Args:
+                event_in: Incoming event payload containing project, event type,
+                    JSON schema version, optional event UUID, and business payload.
+
+            Returns:
+                The persisted event representation after the ingestion transaction
+                has been committed.
+
+            Raises:
+                ValueError: If no matching active schema can validate the payload.
+                jsonschema.ValidationError: If the payload does not match the active
+                client schema.
+            """
+
         schema_definition = self.schema_validation_service.validate_payload(
             event_type_id=event_in.event_type_id,
             json_version_internal=event_in.json_version_internal,

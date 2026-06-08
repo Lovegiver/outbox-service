@@ -58,14 +58,14 @@ def route_received_events() -> None:
     db = SessionLocal()
 
     try:
-        event_service = ServiceFactory.create_event_service(db)
+        event_ingress_service = ServiceFactory.create_event_ingress_service(db)
         route_service = ServiceFactory.create_route_service(db)
         delivery_repository = ServiceFactory.create_event_delivery_repository(db)
 
-        events = event_service.event_repository.find_received()
+        events = event_ingress_service.event_repository.find_received()
 
         for event in events:
-            event_service.metrics_extraction_service.extract_and_persist_for_event(
+            event_ingress_service.metrics_extraction_service.extract_and_persist_for_event(
                 event
             )
             routes = route_service.route_repository.find_by_event_type(
@@ -85,7 +85,7 @@ def route_received_events() -> None:
 
             if routes:
                 event.status = EventStatus.ROUTED
-                event_service.event_repository.save(event)
+                event_ingress_service.event_repository.save(event)
 
         db.commit()
 
@@ -101,7 +101,7 @@ def deliver_one_delivery(delivery_id: int) -> None:
     db = SessionLocal()
 
     try:
-        event_service = ServiceFactory.create_event_service(db)
+        event_ingress_service = ServiceFactory.create_event_ingress_service(db)
         delivery_repository = (
             ServiceFactory.create_event_delivery_repository(db)
         )
@@ -116,7 +116,7 @@ def deliver_one_delivery(delivery_id: int) -> None:
             )
             return
 
-        event = event_service.event_repository.get_by_id(
+        event = event_ingress_service.event_repository.get_by_id(
             delivery.event_id
         )
 
