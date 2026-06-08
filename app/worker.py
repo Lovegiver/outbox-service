@@ -7,11 +7,54 @@ from app.models import EventDelivery
 from app.services.config_service import ConfigService
 from apscheduler.schedulers.background import BackgroundScheduler
 
+"""
+Background worker responsible for executing the secondary Outbox pipeline.
+
+This worker processes events that have already been durably persisted
+with the RECEIVED status.
+
+The worker is intentionally decoupled from the HTTP ingestion layer.
+Its responsibility is to execute asynchronous and potentially expensive
+operations such as:
+
+- metrics extraction;
+- routing resolution;
+- delivery creation;
+- delivery execution;
+- retry handling;
+- dead-letter management.
+
+This separation guarantees that event ingestion remains fast,
+transactionally short, and resilient.
+
+The worker therefore acts as the execution engine of the Outbox runtime
+pipeline, independently from the ingress mechanism used to persist events
+(FastAPI, Kafka, Redis Streams, etc.).
+"""
+
 scheduler = BackgroundScheduler()
 config_service = ConfigService()
 
 
 def route_received_events() -> None:
+    """
+    Process all events currently marked as RECEIVED.
+
+    For each received event, the worker executes the secondary processing pipeline:
+
+    1. metrics extraction and observation persistence;
+    2. route resolution based on EventType;
+    3. delivery creation;
+    4. event status transition to ROUTED.
+
+    All operations executed for a given event are committed together
+    within the processing transaction boundary.
+
+    The ingestion transaction is intentionally separated from this
+    processing phase in order to keep event reception fast, durable,
+    and resilient.
+    """
+
     db = SessionLocal()
 
     try:
@@ -22,6 +65,9 @@ def route_received_events() -> None:
         events = event_service.event_repository.find_received()
 
         for event in events:
+            event_service.metrics_extraction_service.extract_and_persist_for_event(
+                event
+            )
             routes = route_service.route_repository.find_by_event_type(
                 event.event_type_id
             )
