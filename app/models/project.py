@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app.database import Base
 from sqlalchemy import Boolean, String, BigInteger
@@ -30,7 +30,7 @@ class Project(Base):
         unique=True,
     )
 
-    description: Mapped[str | None] = mapped_column(
+    description: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
     )

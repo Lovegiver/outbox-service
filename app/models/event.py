@@ -1,14 +1,13 @@
 from __future__ import annotations
+
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
+from app.database import Base
 from sqlalchemy import BigInteger, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.database import Base
-
 
 if TYPE_CHECKING:
     from app.models.event_type import EventType
@@ -18,6 +17,15 @@ if TYPE_CHECKING:
 
 
 class Event(Base):
+    """
+    Persistent Outbox event accepted by the ingress layer.
+
+    An Event represents a validated business payload durably stored by OB1.
+    The event_uuid uniquely identifies this specific event occurrence, while
+    correlation_id can link several events that belong to the same distributed
+    business process or runtime flow.
+    """
+
     __tablename__ = "event"
     __table_args__ = {"schema": "outbox"}
 
@@ -32,6 +40,16 @@ class Event(Base):
         nullable=False,
         unique=True,
     )
+
+    correlation_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+    """
+    Optional identifier used to correlate multiple events belonging
+    to the same distributed business process or runtime flow.
+    """
 
     project_id: Mapped[int] = mapped_column(
         BigInteger,

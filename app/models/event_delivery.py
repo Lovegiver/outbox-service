@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Optional
 
 from app.core.delivery_status import DeliveryStatus
 from app.database import Base
@@ -32,7 +33,7 @@ class EventDelivery(Base):
         nullable=False,
     )
 
-    destination_url: Mapped[str | None] = mapped_column(
+    destination_url: Mapped[Optional[str]] = mapped_column(
         String(1000),
         nullable=True,
     )
@@ -49,7 +50,7 @@ class EventDelivery(Base):
         default=0,
     )
 
-    last_error: Mapped[str | None] = mapped_column(
+    last_error: Mapped[Optional[str]] = mapped_column(
         String(1000),
         nullable=True,
     )

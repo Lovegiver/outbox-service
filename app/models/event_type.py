@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app.database import Base
 from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
@@ -48,7 +48,7 @@ class EventType(Base):
         nullable=False,
     )
 
-    description: Mapped[str | None] = mapped_column(
+    description: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
     )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app.core.auth_type import AuthType
 from app.database import Base
@@ -67,7 +67,7 @@ class RouteDefinition(Base):
         nullable=True,
     )
 
-    secret_ref: Mapped[str | None] = mapped_column(
+    secret_ref: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
     )

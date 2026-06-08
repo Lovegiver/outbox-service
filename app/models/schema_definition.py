@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app.database import Base
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
@@ -32,7 +32,7 @@ class SchemaDefinition(Base):
         nullable=False,
     )
 
-    json_version_client: Mapped[str | None] = mapped_column(
+    json_version_client: Mapped[Optional[str]] = mapped_column(
         String(30),
         nullable=True,
     )

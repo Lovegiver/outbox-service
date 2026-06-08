@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from app.database import Base
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
@@ -37,7 +37,7 @@ class MetricDefinitionVersion(Base):
         nullable=False,
     )
 
-    yaml_version_label: Mapped[str | None] = mapped_column(
+    yaml_version_label: Mapped[Optional[str]] = mapped_column(
         String(30),
         nullable=True,
     )

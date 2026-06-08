@@ -41,21 +41,21 @@ class EventIngressService:
 
     def receive_event(self, event_in: EventIn) -> EventReceived:
         """
-            Validate and persist an incoming Outbox event.
+        Validate and persist an incoming Outbox event.
 
-            Args:
-                event_in: Incoming event payload containing project, event type,
-                    JSON schema version, optional event UUID, and business payload.
+        Args:
+            event_in: Incoming event payload containing project, event type,
+                JSON schema version, optional event UUID, and business payload.
 
-            Returns:
-                The persisted event representation after the ingestion transaction
-                has been committed.
+        Returns:
+            The persisted event representation after the ingestion transaction
+            has been committed.
 
-            Raises:
-                ValueError: If no matching active schema can validate the payload.
-                jsonschema.ValidationError: If the payload does not match the active
-                client schema.
-            """
+        Raises:
+            ValueError: If no matching active schema can validate the payload.
+            jsonschema.ValidationError: If the payload does not match the active
+            client schema.
+        """
 
         schema_definition = self.schema_validation_service.validate_payload(
             event_type_id=event_in.event_type_id,
@@ -71,6 +71,7 @@ class EventIngressService:
             json_version_internal=event_in.json_version_internal,
             payload=event_in.payload,
             status=EventStatus.RECEIVED.value,
+            correlation_id=event_in.correlation_id,
         )
 
         saved_event = self.event_repository.save(event)

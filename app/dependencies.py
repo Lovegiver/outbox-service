@@ -1,4 +1,11 @@
 from collections.abc import Callable
+from fastapi import Depends, HTTPException
+from fastapi import Header
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jwt import ExpiredSignatureError, InvalidTokenError
+from sqlalchemy.orm import Session
+from starlette import status
+from typing import Optional
 
 from app.container.service_factory import ServiceFactory
 from app.core.auth_enums import UserRole
@@ -11,12 +18,6 @@ from app.services.auth_service import AuthService
 from app.services.event_ingress_service import EventIngressService
 from app.services.event_type_service import EventTypeService
 from app.services.jwt_service import JwtService
-from fastapi import Depends, HTTPException
-from fastapi import Header
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jwt import ExpiredSignatureError, InvalidTokenError
-from sqlalchemy.orm import Session
-from starlette import status
 
 bearer_scheme = HTTPBearer()
 
@@ -202,7 +203,7 @@ def get_api_key_service(
     )
 
 def get_current_api_key(
-    x_api_key: str | None = Header(
+    x_api_key: Optional[str] = Header(
         default=None,
         alias="X-API-Key",
     ),
