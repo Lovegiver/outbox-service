@@ -1,6 +1,8 @@
 from logging.config import fileConfig
+from typing import Optional
 
 from alembic import context
+
 from app.database import Base, DATABASE_URL
 
 # Required for Alembic autogenerate.
@@ -51,7 +53,25 @@ def process_revision_directives(
             )
         ]
 
+def compare_type(
+    _context,
+    _inspected_column,
+    _metadata_column,
+    inspected_type,
+    metadata_type,
+) -> Optional[bool]:
+    inspected_name = getattr(inspected_type, "name", None)
+    metadata_name = getattr(metadata_type, "name", None)
 
+    enum_names = {
+        "user_role",
+        "project_member_role",
+    }
+
+    if inspected_name in enum_names and metadata_name == inspected_name:
+        return False
+
+    return None
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -73,7 +93,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
-        compare_type=True,
+        compare_type=compare_type,
         render_as_batch=False,
     )
 
@@ -100,7 +120,7 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             process_revision_directives=process_revision_directives,
             include_schemas=True,
-            compare_type=True,
+            compare_type=compare_type,
             render_as_batch=False,
         )
 

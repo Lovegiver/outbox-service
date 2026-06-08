@@ -1,12 +1,15 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from app.core.delivery_status import DeliveryStatus
 from app.database import Base
-from app.models import Event
 from sqlalchemy import DateTime, ForeignKey, Integer, String, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+if TYPE_CHECKING:
+    from app.models.event import Event
 
 class EventDelivery(Base):
     __tablename__ = "event_delivery"
