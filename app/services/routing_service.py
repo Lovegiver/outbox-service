@@ -7,6 +7,9 @@ from app.schemas.routing_schema import RoutingConfig
 
 class RoutingService:
 
+    def __init__(self):
+        pass
+
     def get_destinations(
             self,
             project: str

@@ -1,5 +1,8 @@
 from contextlib import asynccontextmanager
 
+from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
 from app.api.admin.api_key_router import (
     router as api_key_router,
 )
@@ -8,6 +11,9 @@ from app.api.admin.dead_letter_router import (
 )
 from app.api.admin.event_type_router import (
     router as event_type_router
+)
+from app.api.admin.metric_definition_router import (
+    router as metric_definition_router,
 )
 from app.api.admin.project_api import router as admin_project_router
 from app.api.admin.project_member_router import (
@@ -27,14 +33,10 @@ from app.dependencies import (
     get_event_ingress_service,
 )
 from app.models.api_key import ApiKey
+from app.runtime.runtime_ws import router as runtime_router
 from app.schemas.event_schema import EventIn, EventReceived
 from app.services.event_ingress_service import EventIngressService
 from app.worker import start_worker, stop_worker
-from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from app.api.admin.metric_definition_router import (
-    router as metric_definition_router,
-)
 
 
 @asynccontextmanager
@@ -62,7 +64,7 @@ app.include_router(api_key_router)
 app.include_router(dead_letter_router)
 app.include_router(project_member_router)
 app.include_router(metric_definition_router)
-app.include_router(metrics_router)
+app.include_router(runtime_router)
 
 
 @app.get("/health")

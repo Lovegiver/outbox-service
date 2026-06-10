@@ -1,11 +1,18 @@
+import asyncio
+
+from apscheduler.schedulers.background import BackgroundScheduler
+
 from app.container.service_factory import ServiceFactory
 from app.core.delivery_status import DeliveryStatus
 from app.core.event_status import EventStatus
 from app.core.logging import logger
 from app.database import SessionLocal
 from app.models import EventDelivery
+from app.runtime.runtime_event import RuntimeEvent
+from app.runtime.runtime_event_bus import runtime_event_bus
+from app.runtime.runtime_event_type import RuntimeEventType
 from app.services.config_service import ConfigService
-from apscheduler.schedulers.background import BackgroundScheduler
+
 
 """
 Background worker responsible for executing the secondary Outbox pipeline.
@@ -65,8 +72,24 @@ def route_received_events() -> None:
         events = event_ingress_service.event_repository.find_received()
 
         for event in events:
-            event_ingress_service.metrics_extraction_service.extract_and_persist_for_event(
-                event
+            observations = (
+                event_ingress_service
+                .metrics_extraction_service
+                .extract_and_persist_for_event(event)
+            )
+
+            publish_runtime_event(
+                RuntimeEvent(
+                    type=RuntimeEventType.METRICS_EXTRACTED,
+                    event_id=event.id,
+                    event_uuid=event.event_uuid,
+                    event_type_id=event.event_type_id,
+                    correlation_id=event.correlation_id,
+                    message="Metrics extracted",
+                    payload={
+                        "observation_count": len(observations),
+                    },
+                )
             )
             routes = route_service.route_repository.find_by_event_type(
                 event.event_type_id
@@ -86,6 +109,41 @@ def route_received_events() -> None:
             if routes:
                 event.status = EventStatus.ROUTED
                 event_ingress_service.event_repository.save(event)
+
+                publish_runtime_event(
+                    RuntimeEvent(
+                        type=RuntimeEventType.EVENT_ROUTED,
+                        event_id=event.id,
+                        event_uuid=event.event_uuid,
+                        event_type_id=event.event_type_id,
+                        correlation_id=event.correlation_id,
+                        event_status=event.status,
+                        message="Event routed",
+                        payload={
+                            "delivery_count": len(routes),
+                        },
+                    )
+                )
+            else:
+                event.status = EventStatus.UNROUTABLE
+                event_ingress_service.event_repository.save(event)
+
+                publish_runtime_event(
+                    RuntimeEvent(
+                        type=RuntimeEventType.EVENT_UNROUTABLE,
+                        event_id=event.id,
+                        event_uuid=event.event_uuid,
+                        event_type_id=event.event_type_id,
+                        correlation_id=event.correlation_id,
+                        event_status=event.status,
+                        message="Event routing failed: no active route found",
+                        payload={
+                            "reason": "NO_ACTIVE_ROUTE",
+                        },
+                    )
+                )
+
+                continue
 
         db.commit()
 
@@ -127,6 +185,19 @@ def deliver_one_delivery(delivery_id: int) -> None:
             db.commit()
             return
 
+        publish_runtime_event(
+            RuntimeEvent(
+                type=RuntimeEventType.DELIVERY_STARTED,
+                event_id=event.id,
+                event_uuid=event.event_uuid,
+                event_type_id=event.event_type_id,
+                correlation_id=event.correlation_id,
+                delivery_id=delivery.id,
+                delivery_status=delivery.status,
+                message="Delivery started",
+            )
+        )
+
         delivery_service.deliver(
             event=event,
             delivery=delivery,
@@ -134,6 +205,19 @@ def deliver_one_delivery(delivery_id: int) -> None:
 
         delivery_repository.save(delivery)
         db.commit()
+
+        publish_runtime_event(
+            RuntimeEvent(
+                type=RuntimeEventType.DELIVERY_SUCCEEDED,
+                event_id=event.id,
+                event_uuid=event.event_uuid,
+                event_type_id=event.event_type_id,
+                correlation_id=event.correlation_id,
+                delivery_id=delivery.id,
+                delivery_status=delivery.status,
+                message="Delivery succeeded",
+            )
+        )
 
     except Exception as exc:
         db.rollback()
@@ -146,6 +230,14 @@ def deliver_one_delivery(delivery_id: int) -> None:
             f"[OB1-worker] delivery error "
             f"delivery_id={delivery_id} "
             f"error={exc}"
+        )
+
+        publish_runtime_event(
+            RuntimeEvent(
+                type=RuntimeEventType.DELIVERY_FAILED,
+                delivery_id=delivery_id,
+                message=str(exc),
+            )
         )
 
     finally:
@@ -174,8 +266,38 @@ def persist_delivery_failure(
 
         if delivery.attempt_count >= max_attempts:
             delivery.status = DeliveryStatus.DEAD_LETTER
+
+            publish_runtime_event(
+                RuntimeEvent(
+                    type=RuntimeEventType.DELIVERY_DEAD_LETTERED,
+                    delivery_id=delivery.id,
+                    delivery_status=delivery.status,
+                    message="Delivery moved to dead letter",
+                    payload={
+                        "attempt_count": delivery.attempt_count,
+                        "last_error": delivery.last_error,
+                        "destination_name": delivery.destination_name,
+                        "destination_url": delivery.destination_url,
+                    },
+                )
+            )
         else:
             delivery.status = DeliveryStatus.FAILED
+
+            publish_runtime_event(
+                RuntimeEvent(
+                    type=RuntimeEventType.DELIVERY_FAILED,
+                    delivery_id=delivery.id,
+                    delivery_status=delivery.status,
+                    message="Delivery moved to dead letter",
+                    payload={
+                        "attempt_count": delivery.attempt_count,
+                        "last_error": delivery.last_error,
+                        "destination_name": delivery.destination_name,
+                        "destination_url": delivery.destination_url,
+                    },
+                )
+            )
 
         delivery_repository.save(delivery)
         db.commit()
@@ -218,7 +340,13 @@ def deliver_pending_deliveries() -> None:
 
 
 def process_outbox() -> None:
-    logger.info("[OB1-worker] cycle started")
+
+    publish_runtime_event(
+        RuntimeEvent(
+            type=RuntimeEventType.WORKER_CYCLE_STARTED,
+            message="OB1 worker cycle started",
+        )
+    )
 
     route_received_events()
     deliver_pending_deliveries()
@@ -248,7 +376,12 @@ def process_outbox() -> None:
     finally:
         db.close()
 
-    logger.info("[OB1-worker] cycle finished")
+    publish_runtime_event(
+        RuntimeEvent(
+            type=RuntimeEventType.WORKER_CYCLE_FINISHED,
+            message="OB1 worker cycle finished",
+        )
+    )
 
 
 def start_worker() -> None:
@@ -271,3 +404,16 @@ def start_worker() -> None:
 def stop_worker() -> None:
     scheduler.shutdown()
     logger.info("[OB1-worker] stopped")
+
+
+def publish_runtime_event(event: RuntimeEvent) -> None:
+    """
+    Publish a runtime event from synchronous worker code.
+
+    The worker currently runs in a synchronous APScheduler context,
+    therefore runtime publication must bootstrap its own event loop.
+    """
+
+    asyncio.run(
+        runtime_event_bus.publish(event)
+    )
