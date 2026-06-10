@@ -232,14 +232,6 @@ def deliver_one_delivery(delivery_id: int) -> None:
             f"error={exc}"
         )
 
-        publish_runtime_event(
-            RuntimeEvent(
-                type=RuntimeEventType.DELIVERY_FAILED,
-                delivery_id=delivery_id,
-                message=str(exc),
-            )
-        )
-
     finally:
         db.close()
 
@@ -272,12 +264,14 @@ def persist_delivery_failure(
                     type=RuntimeEventType.DELIVERY_DEAD_LETTERED,
                     delivery_id=delivery.id,
                     delivery_status=delivery.status,
-                    message="Delivery moved to dead letter",
+                    message="Final delivery attempt failed and moved to dead letter",
                     payload={
                         "attempt_count": delivery.attempt_count,
+                        "max_attempts": max_attempts,
                         "last_error": delivery.last_error,
                         "destination_name": delivery.destination_name,
                         "destination_url": delivery.destination_url,
+                        "final_attempt_failed": True,
                     },
                 )
             )
@@ -289,7 +283,7 @@ def persist_delivery_failure(
                     type=RuntimeEventType.DELIVERY_FAILED,
                     delivery_id=delivery.id,
                     delivery_status=delivery.status,
-                    message="Delivery moved to dead letter",
+                    message="Delivery attempt failed",
                     payload={
                         "attempt_count": delivery.attempt_count,
                         "last_error": delivery.last_error,
