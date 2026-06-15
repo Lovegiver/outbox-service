@@ -1,6 +1,8 @@
-from contextlib import asynccontextmanager
+import os
 
+from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.api.admin.api_key_router import (
@@ -33,6 +35,9 @@ from app.dependencies import (
     get_event_ingress_service,
 )
 from app.models.api_key import ApiKey
+from app.api.runtime_metrics_router import (
+    router as runtime_metrics_router,
+)
 from app.runtime.runtime_ws import router as runtime_router
 from app.schemas.event_schema import EventIn, EventReceived
 from app.services.event_ingress_service import EventIngressService
@@ -41,9 +46,18 @@ from app.worker import start_worker, stop_worker
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    start_worker()
+    worker_enabled = (
+        os.getenv("OB1_ENABLE_EMBEDDED_WORKER", "true").lower()
+        == "true"
+    )
+
+    if worker_enabled:
+        start_worker()
+
     yield
-    stop_worker()
+
+    if worker_enabled:
+        stop_worker()
 
 
 app = FastAPI(
@@ -51,6 +65,17 @@ app = FastAPI(
     version="0.1.0",
     description="Event routing and delivery service",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(admin_project_router)
@@ -65,6 +90,7 @@ app.include_router(dead_letter_router)
 app.include_router(project_member_router)
 app.include_router(metric_definition_router)
 app.include_router(runtime_router)
+app.include_router(runtime_metrics_router)
 
 
 @app.get("/health")
