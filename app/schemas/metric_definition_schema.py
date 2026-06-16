@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -10,7 +12,7 @@ class MetricDefinitionCreate(BaseModel):
 
     code: str
     name: str
-    description: str | None = None
+    description: Optional[str] = None
 
 
 class MetricDefinitionRead(BaseModel):
@@ -22,7 +24,7 @@ class MetricDefinitionRead(BaseModel):
     event_type_id: int
     code: str
     name: str
-    description: str | None
+    description: Optional[str]
     is_active: bool
 
     model_config = {
@@ -36,7 +38,7 @@ class MetricDefinitionVersionCreate(BaseModel):
     """
 
     yaml_version_number: int
-    yaml_version_label: str | None = None
+    yaml_version_label: Optional[str] = None
     yaml_content: str
 
 
@@ -48,7 +50,7 @@ class MetricDefinitionVersionRead(BaseModel):
     id: int
     metric_definition_id: int
     yaml_version_number: int
-    yaml_version_label: str | None
+    yaml_version_label: Optional[str]
     yaml_content: str
     is_active: bool
 
@@ -69,3 +71,31 @@ class MetricDefinitionVersionSchemaRead(BaseModel):
     model_config = {
         "from_attributes": True,
     }
+
+
+class MetricYamlValidationRequest(BaseModel):
+    """
+    Request payload used to validate or preview a metric YAML against a JSON schema.
+    """
+
+    schema_definition_id: int
+    yaml_content: str
+
+
+class MetricYamlValidationResponse(BaseModel):
+    """
+    Response returned after validating a metric YAML.
+    """
+
+    valid: bool
+    errors: list[str] = []
+
+
+class MetricYamlPreviewResponse(BaseModel):
+    """
+    Response returned after compiling a valid metric YAML into its runtime plan preview.
+    """
+
+    valid: bool
+    errors: list[str] = []
+    compiled_plan_json: Optional[dict] = None
