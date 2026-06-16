@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from app.models.metric_definition import MetricDefinition
     from app.models.metric_definition_version import MetricDefinitionVersion
     from app.models.processing_chain import ProcessingChain
+
+JsonDict = dict[str, Any]
 
 
 class ProcessingPlan(Base):
@@ -55,6 +58,11 @@ class ProcessingPlan(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+
+    compiled_plan_json: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
     )
 
     processing_chain: Mapped["ProcessingChain"] = relationship(

@@ -1,5 +1,8 @@
 from __future__ import annotations
+import yaml
 
+from app.metrics_engine.metric_plan_compiler import compile_metric_yaml_to_json
+from app.metrics_engine.metric_yaml_validator import validate_metric_yaml
 from app.models.processing_chain import ProcessingChain
 from app.models.processing_plan import ProcessingPlan
 from app.repositories.metric_definition_version_repository import (
@@ -7,6 +10,7 @@ from app.repositories.metric_definition_version_repository import (
 )
 from app.repositories.processing_chain_repository import ProcessingChainRepository
 from app.repositories.processing_plan_repository import ProcessingPlanRepository
+from app.repositories.schema_repository import SchemaRepository
 
 
 class ProcessingChainBuilderService:
@@ -15,18 +19,22 @@ class ProcessingChainBuilderService:
         processing_chain_repository: ProcessingChainRepository,
         processing_plan_repository: ProcessingPlanRepository,
         metric_definition_version_repository: MetricDefinitionVersionRepository,
+        schema_repository: SchemaRepository,
     ) -> None:
         self.processing_chain_repository = processing_chain_repository
         self.processing_plan_repository = processing_plan_repository
         self.metric_definition_version_repository = (
             metric_definition_version_repository
         )
+        self.schema_repository = schema_repository
 
     def build_chain(
         self,
         event_type_id: int,
         schema_definition_id: int,
     ) -> ProcessingChain:
+        schema_definition = self.schema_repository.find_by_id(schema_definition_id)
+
         version_number = self.processing_chain_repository.find_next_version_number(
             event_type_id=event_type_id,
             schema_definition_id=schema_definition_id,
@@ -50,17 +58,30 @@ class ProcessingChainBuilderService:
             )
         )
 
-        plans = [
-            ProcessingPlan(
-                processing_chain_id=saved_chain.id,
-                metric_definition_id=metric_definition_version.metric_definition_id,
-                metric_definition_version_id=metric_definition_version.id,
-                position=index,
-                is_active=True,
+        plans: list[ProcessingPlan] = []
+
+        for index, metric_definition_version in enumerate(metric_definition_versions):
+            metric_yaml = yaml.safe_load(metric_definition_version.yaml_content)
+
+            validated_metric_yaml = validate_metric_yaml(
+                metric_yaml=metric_yaml,
+                json_schema=schema_definition.json_schema,
             )
-            for index, metric_definition_version
-            in enumerate(metric_definition_versions)
-        ]
+
+            compiled_plan_json = compile_metric_yaml_to_json(
+                validated_metric_yaml
+            )
+
+            plans.append(
+                ProcessingPlan(
+                    processing_chain_id=saved_chain.id,
+                    metric_definition_id=metric_definition_version.metric_definition_id,
+                    metric_definition_version_id=metric_definition_version.id,
+                    position=index,
+                    is_active=True,
+                    compiled_plan_json=compiled_plan_json,
+                )
+            )
 
         self.processing_plan_repository.add_all(plans)
 

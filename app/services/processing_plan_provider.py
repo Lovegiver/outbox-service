@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import yaml
-
 from app.metrics_engine.compiled_processing_plan import CompiledProcessingPlan
-from app.metrics_engine.metric_yaml_validator import validate_metric_yaml
 from app.repositories.processing_chain_repository import ProcessingChainRepository
 from app.repositories.processing_plan_repository import ProcessingPlanRepository
 
@@ -68,21 +65,15 @@ class ProcessingPlanProvider:
         compiled_plans: list[CompiledProcessingPlan] = []
 
         for plan in plans:
-            metric_yaml = yaml.safe_load(
-                plan.metric_definition_version.yaml_content
-            )
-
-            validated_metric_yaml = validate_metric_yaml(
-                metric_yaml=metric_yaml,
-                json_schema=active_chain.schema_definition.json_schema,
-            )
+            if plan.compiled_plan_json is None:
+                continue
 
             compiled_plans.append(
                 CompiledProcessingPlan(
                     processing_chain_id=active_chain.id,
                     metric_definition_id=plan.metric_definition_id,
                     metric_definition_version_id=plan.metric_definition_version_id,
-                    validated_metric_yaml=validated_metric_yaml,
+                    compiled_plan_json=plan.compiled_plan_json,
                 )
             )
 

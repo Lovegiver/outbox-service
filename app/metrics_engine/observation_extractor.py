@@ -75,6 +75,93 @@ def extract_observations(
     return observations
 
 
+def extract_observations_from_compiled_plan(
+    payload: dict[str, Any],
+    compiled_plan_json: dict,
+    limits: ExtractionLimits | None = None,
+) -> list[Observation]:
+    observations: list[Observation] = []
+    effective_limits = limits or ExtractionLimits()
+
+    for observation_definition in compiled_plan_json.get("observations", []):
+        metric_code = observation_definition["metric_code"]
+        value_path = observation_definition["value"]["path"]
+
+        value_matches = parse(value_path).find(payload)
+
+        if not value_matches:
+            raise ObservationExtractionError(
+                f"No value found for observation '{metric_code}' "
+                f"at path '{value_path}'"
+            )
+
+        if len(value_matches) > effective_limits.max_matches_per_observation:
+            raise ObservationExtractionError(
+                f"Observation '{metric_code}' produced "
+                f"{len(value_matches)} matches, exceeding limit "
+                f"{effective_limits.max_matches_per_observation}"
+            )
+
+        label_matches_by_name = _extract_compiled_label_matches_by_name(
+            payload=payload,
+            observation_definition=observation_definition,
+        )
+
+        for index, match in enumerate(value_matches):
+            dimensions = _build_dimensions(
+                index=index,
+                label_matches_by_name=label_matches_by_name,
+                observation_code=metric_code,
+            )
+
+            if len(observations) >= effective_limits.max_observations_per_event:
+                raise ObservationExtractionError(
+                    f"Event produced more than "
+                    f"{effective_limits.max_observations_per_event} observations"
+                )
+
+            observations.append(
+                Observation(
+                    metric_code=metric_code,
+                    value=_to_float(
+                        value=match.value,
+                        observation_code=metric_code,
+                    ),
+                    dimensions=dimensions,
+                )
+            )
+
+    return observations
+
+
+def _extract_compiled_label_matches_by_name(
+    payload: dict[str, Any],
+    observation_definition: dict,
+) -> dict[str, list[Any] | str]:
+    label_matches_by_name: dict[str, list[Any] | str] = {}
+
+    for label_definition in observation_definition.get("labels", []):
+        label_name = label_definition["name"]
+
+        if label_definition["kind"] == "index":
+            label_matches_by_name[label_name] = "$index"
+            continue
+
+        label_path = label_definition["path"]
+        matches = parse(label_path).find(payload)
+
+        if not matches:
+            raise ObservationExtractionError(
+                f"No value found for observation "
+                f"'{observation_definition['metric_code']}' "
+                f"label '{label_name}' at path '{label_path}'"
+            )
+
+        label_matches_by_name[label_name] = [match.value for match in matches]
+
+    return label_matches_by_name
+
+
 def _extract_label_matches_by_name(
     payload: dict[str, Any],
     observation_definition,

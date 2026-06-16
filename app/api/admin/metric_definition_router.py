@@ -1,3 +1,6 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
 from app.container.service_factory import ServiceFactory
 from app.core.project_permission import ProjectPermission
 from app.database import get_db
@@ -10,8 +13,7 @@ from app.schemas.metric_definition_schema import (
     MetricDefinitionVersionRead,
     MetricDefinitionVersionSchemaRead,
 )
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+
 
 router = APIRouter(
     prefix="/api/admin/event-types/{event_type_id}/metric-definitions",
@@ -99,3 +101,30 @@ def create_metric_definition_version_schema_compatibility(
         metric_definition_version_id=metric_definition_version_id,
         schema_definition_id=schema_definition_id,
     )
+
+@router.post(
+    "/schemas/{schema_definition_id}/processing-chain/rebuild",
+)
+def rebuild_processing_chain(
+    event_type_id: int,
+    schema_definition_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    service = ServiceFactory.create_processing_chain_activation_service(db)
+
+    chain = service.rebuild_and_activate_chain(
+        event_type_id=event_type_id,
+        schema_definition_id=schema_definition_id,
+    )
+
+    db.commit()
+    db.refresh(chain)
+
+    return {
+        "id": chain.id,
+        "event_type_id": chain.event_type_id,
+        "schema_definition_id": chain.schema_definition_id,
+        "version_number": chain.version_number,
+        "status": chain.status,
+        "is_active": chain.is_active,
+    }

@@ -4,7 +4,9 @@ from typing import Protocol
 
 from app.metrics_engine.compiled_processing_plan import CompiledProcessingPlan
 from app.metrics_engine.event_scope import EventScope
-from app.metrics_engine.observation_extractor import extract_observations
+from app.metrics_engine.observation_extractor import (
+    extract_observations_from_compiled_plan,
+)
 from app.metrics_engine.persistable_observation import PersistableObservation
 from app.models.analytical_observation import AnalyticalObservation
 from app.models.event import Event
@@ -55,9 +57,9 @@ class MetricsExtractionService:
 
         for compiled_plan in compiled_plans:
 
-            observations = extract_observations(
+            observations = extract_observations_from_compiled_plan(
                 payload=event.payload,
-                metric_yaml=compiled_plan.validated_metric_yaml,
+                compiled_plan_json=compiled_plan.compiled_plan_json,
             )
 
             for observation in observations:

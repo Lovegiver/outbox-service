@@ -1,4 +1,7 @@
+from fastapi import Depends
 from sqlalchemy.orm import Session
+
+from app.database import get_db
 
 from app.repositories.api_key_repository import ApiKeyRepository
 from app.repositories.event_delivery_repository import EventDeliveryRepository
@@ -233,6 +236,7 @@ class ServiceFactory:
             metric_definition_version_repository=(
                 MetricDefinitionVersionRepository(db)
             ),
+            schema_repository=SchemaRepository(db),
         )
 
     @classmethod
@@ -253,6 +257,13 @@ class ServiceFactory:
                 cls.create_processing_chain_builder_service(db)
             ),
         )
+
+    @classmethod
+    def get_processing_chain_activation_service(
+            cls,
+            db: Session = Depends(get_db),
+    ) -> ProcessingChainActivationService:
+        return cls.create_processing_chain_activation_service(db)
 
     @classmethod
     def create_processing_plan_provider(
