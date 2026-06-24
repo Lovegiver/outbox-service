@@ -1,0 +1,440 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1prev/api/metrics_router.py ob1next/api/metrics_router.py
+--- ob1prev/api/metrics_router.py	2026-06-22 16:47:51.011804052 +0000
++++ ob1next/api/metrics_router.py	2026-06-22 16:47:38.465621032 +0000
+@@ -108,21 +108,29 @@
+     return "\n".join(lines) + "\n"
+ 
+ @router.get(
+-    "/prometheus-state",
++    "/event-types/{event_type_id}/prometheus-state",
+     response_class=PlainTextResponse,
+ )
+-def get_prometheus_metric_state(
++def get_prometheus_metric_state_for_event_type(
++        event_type_id: int,
+         db: Session = Depends(get_db),
+ ):
+     """
+-    Expose materialized business metric counters in Prometheus text format.
++    Expose materialized business metric counters for one EventType.
+ 
+     The endpoint reads MetricState only. It does not scan events, parse YAML,
+     or recompute analytical observations during the Prometheus scrape.
++
++    Args:
++        event_type_id: EventType whose materialized counters are exposed.
++        db: SQLAlchemy session injected by FastAPI.
++
++    Returns:
++        Prometheus text exposition for the selected EventType.
+     """
+ 
+     service = ServiceFactory.create_metric_state_aggregation_service(db)
+-    states = service.find_all_states()
++    states = service.find_states_by_event_type(event_type_id)
+ 
+     lines = []
+     emitted_headers = set()
+@@ -140,4 +148,3 @@
+         )
+ 
+     return "\n".join(lines) + "\n"
+-
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1prev/models/metric_state.py ob1next/models/metric_state.py
+--- ob1prev/models/metric_state.py	2026-06-22 16:47:51.014139830 +0000
++++ ob1next/models/metric_state.py	2026-06-22 16:47:18.324479637 +0000
+@@ -1,7 +1,7 @@
+ from __future__ import annotations
+ 
+ from datetime import datetime
+-from typing import Any, TYPE_CHECKING
++from typing import Any, Optional, TYPE_CHECKING
+ 
+ from app.database import Base
+ from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, String, UniqueConstraint, func
+@@ -59,14 +59,14 @@
+         index=True,
+     )
+ 
+-    metric_definition_id: Mapped[int | None] = mapped_column(
++    metric_definition_id: Mapped[Optional[int]] = mapped_column(
+         BigInteger,
+         ForeignKey("outbox.metric_definition.id"),
+         nullable=True,
+         index=True,
+     )
+ 
+-    metric_definition_version_id: Mapped[int | None] = mapped_column(
++    metric_definition_version_id: Mapped[Optional[int]] = mapped_column(
+         BigInteger,
+         ForeignKey("outbox.metric_definition_version.id"),
+         nullable=True,
+@@ -93,5 +93,5 @@
+ 
+     project: Mapped["Project"] = relationship()
+     event_type: Mapped["EventType"] = relationship()
+-    metric_definition: Mapped["MetricDefinition | None"] = relationship()
+-    metric_definition_version: Mapped["MetricDefinitionVersion | None"] = relationship()
++    metric_definition: Mapped[Optional["MetricDefinition"]] = relationship()
++    metric_definition_version: Mapped[Optional["MetricDefinitionVersion"]] = relationship()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1prev/repositories/metric_state_repository.py ob1next/repositories/metric_state_repository.py
+--- ob1prev/repositories/metric_state_repository.py	2026-06-22 16:47:51.014389287 +0000
++++ ob1next/repositories/metric_state_repository.py	2026-06-22 16:47:18.324922412 +0000
+@@ -2,12 +2,12 @@
+ 
+ from collections.abc import Iterable
+ from dataclasses import dataclass
+-from datetime import datetime, UTC
++from datetime import UTC, datetime
+ import hashlib
+ import json
+-from typing import Any
++from typing import Any, Optional
+ 
+-from sqlalchemy import select
++from sqlalchemy import distinct, select
+ from sqlalchemy.dialects.postgresql import insert
+ from sqlalchemy.orm import Session
+ 
+@@ -17,6 +17,20 @@
+ 
+ 
+ @dataclass(frozen=True)
++class MetricObservationStream:
++    """
++    Identifies one independent Prometheus aggregation stream.
++
++    Args:
++        project_id: Project owning the analytical observations.
++        event_type_id: EventType whose observations must be materialized.
++    """
++
++    project_id: int
++    event_type_id: int
++
++
++@dataclass(frozen=True)
+ class MetricStateDelta:
+     """
+     Aggregation delta for one Prometheus time series.
+@@ -34,8 +48,8 @@
+ 
+     project_id: int
+     event_type_id: int
+-    metric_definition_id: int | None
+-    metric_definition_version_id: int | None
++    metric_definition_id: Optional[int]
++    metric_definition_version_id: Optional[int]
+     metric_code: str
+     labels_json: dict[str, Any]
+     labels_hash: str
+@@ -53,25 +67,61 @@
+     def __init__(self, db: Session) -> None:
+         self.db = db
+ 
++    def find_observation_streams(self) -> list[MetricObservationStream]:
++        """
++        Return project/EventType streams that currently have observations.
++
++        Returns:
++            Distinct streams found in the analytical observation log.
++        """
++
++        statement = (
++            select(
++                distinct(AnalyticalObservation.project_id),
++                AnalyticalObservation.event_type_id,
++            )
++            .order_by(
++                AnalyticalObservation.project_id.asc(),
++                AnalyticalObservation.event_type_id.asc(),
++            )
++        )
++
++        return [
++            MetricObservationStream(
++                project_id=int(row[0]),
++                event_type_id=int(row[1]),
++            )
++            for row in self.db.execute(statement).all()
++        ]
++
+     def find_observations_after(
+         self,
++        project_id: int,
++        event_type_id: int,
+         observation_id: int,
+         limit: int = 1000,
+     ) -> list[AnalyticalObservation]:
+         """
+-        Load analytical observations not yet aggregated into MetricState.
++        Load stream observations not yet aggregated into MetricState.
+ 
+         Args:
+-            observation_id: Last processed observation id.
++            project_id: Project owning the observations.
++            event_type_id: EventType whose observations must be loaded.
++            observation_id: Last processed observation id for this stream.
+             limit: Maximum number of observations to load.
+ 
+         Returns:
+-            Ordered observations with id greater than observation_id.
++            Ordered observations with id greater than observation_id for the
++            requested project/EventType stream.
+         """
+ 
+         statement = (
+             select(AnalyticalObservation)
+-            .where(AnalyticalObservation.id > observation_id)
++            .where(
++                AnalyticalObservation.project_id == project_id,
++                AnalyticalObservation.event_type_id == event_type_id,
++                AnalyticalObservation.id > observation_id,
++            )
+             .order_by(AnalyticalObservation.id.asc())
+             .limit(limit)
+         )
+@@ -89,7 +139,7 @@
+             checkpoint_name: Logical checkpoint stream name.
+ 
+         Returns:
+-            Persistent MetricCheckpoint instance.
++            Locked persistent MetricCheckpoint instance.
+         """
+ 
+         statement = (
+@@ -141,7 +191,9 @@
+                     "value": MetricState.value + delta.value,
+                     "labels_json": delta.labels_json,
+                     "metric_definition_id": delta.metric_definition_id,
+-                    "metric_definition_version_id": delta.metric_definition_version_id,
++                    "metric_definition_version_id": (
++                        delta.metric_definition_version_id
++                    ),
+                     "updated_at": now,
+                 },
+             )
+@@ -172,6 +224,32 @@
+ 
+         return checkpoint
+ 
++    def find_states_by_event_type(
++        self,
++        event_type_id: int,
++    ) -> list[MetricState]:
++        """
++        Return Prometheus-ready states for one EventType.
++
++        Args:
++            event_type_id: EventType identifier exposed by the scrape endpoint.
++
++        Returns:
++            Materialized metric states belonging to the EventType.
++        """
++
++        statement = (
++            select(MetricState)
++            .where(MetricState.event_type_id == event_type_id)
++            .order_by(
++                MetricState.project_id.asc(),
++                MetricState.metric_code.asc(),
++                MetricState.labels_hash.asc(),
++            )
++        )
++
++        return list(self.db.execute(statement).scalars().all())
++
+     def find_all_states(self) -> list[MetricState]:
+         """
+         Return all Prometheus-ready metric states ordered by metric name.
+@@ -183,6 +261,8 @@
+         statement = (
+             select(MetricState)
+             .order_by(
++                MetricState.project_id.asc(),
++                MetricState.event_type_id.asc(),
+                 MetricState.metric_code.asc(),
+                 MetricState.labels_hash.asc(),
+             )
+@@ -191,6 +271,21 @@
+         return list(self.db.execute(statement).scalars().all())
+ 
+ 
++def build_checkpoint_name(project_id: int, event_type_id: int) -> str:
++    """
++    Build the durable checkpoint name for one project/EventType stream.
++
++    Args:
++        project_id: Project owning the observation stream.
++        event_type_id: EventType owning the observation stream.
++
++    Returns:
++        Stable checkpoint name encoded in the schema already migrated.
++    """
++
++    return f"prometheus_metric_state:{project_id}:{event_type_id}"
++
++
+ def build_labels_hash(labels: dict[str, Any]) -> str:
+     """
+     Build a stable SHA-256 hash for a Prometheus label set.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1prev/services/metric_state_aggregation_service.py ob1next/services/metric_state_aggregation_service.py
+--- ob1prev/services/metric_state_aggregation_service.py	2026-06-22 16:47:51.014617236 +0000
++++ ob1next/services/metric_state_aggregation_service.py	2026-06-22 16:47:18.325289981 +0000
+@@ -7,17 +7,24 @@
+ from app.models.metric_checkpoint import MetricCheckpoint
+ from app.models.metric_state import MetricState
+ from app.repositories.metric_state_repository import (
++    MetricObservationStream,
+     MetricStateDelta,
++    build_checkpoint_name,
+     build_labels_hash,
+ )
+ 
+ 
+ class MetricStateRepositoryProtocol(Protocol):
++    def find_observation_streams(self) -> list[MetricObservationStream]:
++        ...
++
+     def get_or_create_checkpoint(self, checkpoint_name: str) -> MetricCheckpoint:
+         ...
+ 
+     def find_observations_after(
+         self,
++        project_id: int,
++        event_type_id: int,
+         observation_id: int,
+         limit: int = 1000,
+     ) -> list[AnalyticalObservation]:
+@@ -33,6 +40,9 @@
+     ) -> MetricCheckpoint:
+         ...
+ 
++    def find_states_by_event_type(self, event_type_id: int) -> list[MetricState]:
++        ...
++
+     def find_all_states(self) -> list[MetricState]:
+         ...
+ 
+@@ -43,41 +53,72 @@
+ 
+     This service is the bridge between the analytical observation log and the
+     /metrics endpoint. It processes observations incrementally using a durable
+-    checkpoint so that counters are not recalculated during Prometheus scrapes.
++    checkpoint per project/EventType stream so that counters are not recalculated
++    during Prometheus scrapes.
+     """
+ 
+-    DEFAULT_CHECKPOINT_NAME = "prometheus_metric_state"
+-
+     def __init__(
+         self,
+         metric_state_repository: MetricStateRepositoryProtocol,
+     ) -> None:
+         self.metric_state_repository = metric_state_repository
+ 
+-    def aggregate_next_batch(
++    def aggregate_all_streams(
+         self,
+-        limit: int = 1000,
+-        checkpoint_name: str = DEFAULT_CHECKPOINT_NAME,
++        limit_per_stream: int = 1000,
+     ) -> int:
+         """
+-        Aggregate the next batch of analytical observations into MetricState.
++        Aggregate pending observations for every known project/EventType stream.
+ 
+-        The caller owns the surrounding transaction. MetricState updates and the
+-        checkpoint update must be committed atomically by that caller.
++        The caller owns the transaction boundary. Every stream checkpoint update
++        must be committed atomically with the corresponding MetricState updates.
+ 
+         Args:
++            limit_per_stream: Maximum observations to aggregate per stream.
++
++        Returns:
++            Total number of observations consumed across all streams.
++        """
++
++        total_count = 0
++
++        for stream in self.metric_state_repository.find_observation_streams():
++            total_count += self.aggregate_stream(
++                project_id=stream.project_id,
++                event_type_id=stream.event_type_id,
++                limit=limit_per_stream,
++            )
++
++        return total_count
++
++    def aggregate_stream(
++        self,
++        project_id: int,
++        event_type_id: int,
++        limit: int = 1000,
++    ) -> int:
++        """
++        Aggregate one project/EventType observation stream into MetricState.
++
++        Args:
++            project_id: Project owning the stream.
++            event_type_id: EventType owning the stream.
+             limit: Maximum number of observations to aggregate.
+-            checkpoint_name: Logical checkpoint stream name.
+ 
+         Returns:
+-            Number of observations consumed from the analytical log.
++            Number of observations consumed for the stream.
+         """
+ 
+         checkpoint = self.metric_state_repository.get_or_create_checkpoint(
+-            checkpoint_name=checkpoint_name,
++            checkpoint_name=build_checkpoint_name(
++                project_id=project_id,
++                event_type_id=event_type_id,
++            ),
+         )
+ 
+         observations = self.metric_state_repository.find_observations_after(
++            project_id=project_id,
++            event_type_id=event_type_id,
+             observation_id=checkpoint.last_processed_observation_id,
+             limit=limit,
+         )
+@@ -97,6 +138,24 @@
+ 
+         return len(observations)
+ 
++    def find_states_by_event_type(
++        self,
++        event_type_id: int,
++    ) -> list[MetricState]:
++        """
++        Return materialized Prometheus metric states for one EventType.
++
++        Args:
++            event_type_id: EventType identifier requested by Prometheus.
++
++        Returns:
++            Current metric state rows for the EventType.
++        """
++
++        return self.metric_state_repository.find_states_by_event_type(
++            event_type_id=event_type_id,
++        )
++
+     def find_all_states(self) -> list[MetricState]:
+         """
+         Return all materialized Prometheus metric states.
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1prev/worker.py ob1next/worker.py
+--- ob1prev/worker.py	2026-06-22 16:47:51.015089001 +0000
++++ ob1next/worker.py	2026-06-22 16:47:38.466482916 +0000
+@@ -346,7 +346,7 @@
+ 
+     try:
+         service = ServiceFactory.create_metric_state_aggregation_service(db)
+-        aggregated_count = service.aggregate_next_batch(limit=1000)
++        aggregated_count = service.aggregate_all_streams(limit_per_stream=1000)
+         db.commit()
+ 
+         if aggregated_count > 0:

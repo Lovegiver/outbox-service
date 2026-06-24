@@ -1,0 +1,751 @@
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1zip/api/metrics_router.py ob1patch/api/metrics_router.py
+--- ob1zip/api/metrics_router.py	2026-05-30 15:15:59.000000000 +0000
++++ ob1patch/api/metrics_router.py	2026-06-22 15:28:53.395482811 +0000
+@@ -10,6 +10,30 @@
+ )
+ 
+ 
++def _to_prometheus_metric_name(metric_code: str) -> str:
++    """
++    Convert an OB1 metric code to a Prometheus-safe metric name.
++    """
++
++    return "ob1_" + metric_code.replace(".", "_").replace("-", "_")
++
++
++def _render_labels(labels: dict[str, object]) -> str:
++    """
++    Render Prometheus labels from a JSON-compatible label dictionary.
++    """
++
++    if not labels:
++        return ""
++
++    content = ",".join(
++        f'{key}="{str(value).replace(chr(34), chr(92) + chr(34))}"'
++        for key, value in sorted(labels.items())
++    )
++
++    return "{" + content + "}"
++
++
+ def serialize_metrics(metrics):
+     return [
+         {
+@@ -81,4 +105,39 @@
+             f"{metric_name} {float(metric.value)}"
+         )
+ 
+-    return "\n".join(lines) + "\n"
+\ No newline at end of file
++    return "\n".join(lines) + "\n"
++
++@router.get(
++    "/prometheus-state",
++    response_class=PlainTextResponse,
++)
++def get_prometheus_metric_state(
++        db: Session = Depends(get_db),
++):
++    """
++    Expose materialized business metric counters in Prometheus text format.
++
++    The endpoint reads MetricState only. It does not scan events, parse YAML,
++    or recompute analytical observations during the Prometheus scrape.
++    """
++
++    service = ServiceFactory.create_metric_state_aggregation_service(db)
++    states = service.find_all_states()
++
++    lines = []
++    emitted_headers = set()
++
++    for state in states:
++        metric_name = _to_prometheus_metric_name(state.metric_code)
++
++        if metric_name not in emitted_headers:
++            lines.append(f"# TYPE {metric_name} counter")
++            emitted_headers.add(metric_name)
++
++        lines.append(
++            f"{metric_name}{_render_labels(state.labels_json)} "
++            f"{float(state.value)}"
++        )
++
++    return "\n".join(lines) + "\n"
++
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1zip/container/service_factory.py ob1patch/container/service_factory.py
+--- ob1zip/container/service_factory.py	2026-06-16 10:54:26.000000000 +0000
++++ ob1patch/container/service_factory.py	2026-06-22 15:28:53.394201395 +0000
+@@ -12,6 +12,7 @@
+ from app.repositories.route_repository import RouteRepository
+ from app.repositories.schema_repository import SchemaRepository
+ from app.repositories.system_metric_repository import SystemMetricRepository
++from app.repositories.metric_state_repository import MetricStateRepository
+ from app.repositories.user_repository import UserRepository
+ from app.services.api_key_service import ApiKeyService
+ from app.services.auth_service import AuthService
+@@ -48,6 +49,9 @@
+ from app.services.metrics_extraction_service import (
+     MetricsExtractionService,
+ )
++from app.services.metric_state_aggregation_service import (
++    MetricStateAggregationService,
++)
+ from app.services.processing_chain_activation_service import (
+     ProcessingChainActivationService,
+ )
+@@ -334,4 +338,22 @@
+         Returns:
+             A configured MetricDefinitionAdminService instance.
+         """
+-        return MetricDefinitionAdminService(db)
+\ No newline at end of file
++        return MetricDefinitionAdminService(db)
++
++    @classmethod
++    def create_metric_state_aggregation_service(
++        cls,
++        db: Session,
++    ) -> MetricStateAggregationService:
++        """
++        Create the service responsible for materializing Prometheus metric state.
++
++        Args:
++            db: SQLAlchemy session used by repositories.
++
++        Returns:
++            Configured MetricStateAggregationService instance.
++        """
++        return MetricStateAggregationService(
++            metric_state_repository=MetricStateRepository(db),
++        )
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1zip/models/__init__.py ob1patch/models/__init__.py
+--- ob1zip/models/__init__.py	2026-06-03 12:28:04.000000000 +0000
++++ ob1patch/models/__init__.py	2026-06-22 15:28:53.393577561 +0000
+@@ -7,6 +7,8 @@
+ from app.models.metric_definition_version import MetricDefinitionVersion
+ from app.models.metric_definition_version_schema import MetricDefinitionVersionSchema
+ from app.models.metrics_token import MetricsToken
++from app.models.metric_checkpoint import MetricCheckpoint
++from app.models.metric_state import MetricState
+ from app.models.processing_chain import ProcessingChain
+ from app.models.processing_plan import ProcessingPlan
+ from app.models.project import Project
+@@ -26,6 +28,8 @@
+     "SystemMetric",
+     "ApiKey",
+     "MetricsToken",
++    "MetricCheckpoint",
++    "MetricState",
+     "ProjectMember",
+     "UserAccount",
+     "MetricDefinition",
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1zip/models/metric_checkpoint.py ob1patch/models/metric_checkpoint.py
+--- ob1zip/models/metric_checkpoint.py	1970-01-01 00:00:00.000000000 +0000
++++ ob1patch/models/metric_checkpoint.py	2026-06-22 15:28:34.882982332 +0000
+@@ -0,0 +1,47 @@
++from __future__ import annotations
++
++from datetime import datetime
++
++from app.database import Base
++from sqlalchemy import BigInteger, DateTime, String, UniqueConstraint, func
++from sqlalchemy.orm import Mapped, mapped_column
++
++
++class MetricCheckpoint(Base):
++    """
++    Durable aggregation cursor for Prometheus metric state computation.
++
++    The checkpoint records the last AnalyticalObservation id incorporated into
++    MetricState for one logical worker stream. Updating this checkpoint in the
++    same transaction as MetricState prevents data loss and double counting.
++    """
++
++    __tablename__ = "metric_checkpoint"
++    __table_args__ = (
++        UniqueConstraint(
++            "checkpoint_name",
++            name="uq_metric_checkpoint_name",
++        ),
++        {"schema": "outbox"},
++    )
++
++    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
++
++    checkpoint_name: Mapped[str] = mapped_column(
++        String(100),
++        nullable=False,
++        index=True,
++    )
++
++    last_processed_observation_id: Mapped[int] = mapped_column(
++        BigInteger,
++        nullable=False,
++        default=0,
++        server_default="0",
++    )
++
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        server_default=func.now(),
++        nullable=False,
++    )
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1zip/models/metric_state.py ob1patch/models/metric_state.py
+--- ob1zip/models/metric_state.py	1970-01-01 00:00:00.000000000 +0000
++++ ob1patch/models/metric_state.py	2026-06-22 15:28:34.871173155 +0000
+@@ -0,0 +1,97 @@
++from __future__ import annotations
++
++from datetime import datetime
++from typing import Any, TYPE_CHECKING
++
++from app.database import Base
++from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Index, String, UniqueConstraint, func
++from sqlalchemy.dialects.postgresql import JSONB
++from sqlalchemy.orm import Mapped, mapped_column, relationship
++
++if TYPE_CHECKING:
++    from app.models.event_type import EventType
++    from app.models.metric_definition import MetricDefinition
++    from app.models.metric_definition_version import MetricDefinitionVersion
++    from app.models.project import Project
++
++
++class MetricState(Base):
++    """
++    Current Prometheus-ready state of one business metric time series.
++
++    MetricState stores the already aggregated value exposed by the /metrics
++    endpoint. It is intentionally not an event log: raw events and analytical
++    observations remain the durable history, while this table materializes the
++    current counter value for one metric and one exact label set.
++    """
++
++    __tablename__ = "metric_state"
++    __table_args__ = (
++        UniqueConstraint(
++            "project_id",
++            "event_type_id",
++            "metric_code",
++            "labels_hash",
++            name="uq_metric_state_series",
++        ),
++        Index(
++            "ix_metric_state_project_event_type_metric",
++            "project_id",
++            "event_type_id",
++            "metric_code",
++        ),
++        {"schema": "outbox"},
++    )
++
++    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
++
++    project_id: Mapped[int] = mapped_column(
++        BigInteger,
++        ForeignKey("outbox.project.id"),
++        nullable=False,
++        index=True,
++    )
++
++    event_type_id: Mapped[int] = mapped_column(
++        BigInteger,
++        ForeignKey("outbox.event_type.id"),
++        nullable=False,
++        index=True,
++    )
++
++    metric_definition_id: Mapped[int | None] = mapped_column(
++        BigInteger,
++        ForeignKey("outbox.metric_definition.id"),
++        nullable=True,
++        index=True,
++    )
++
++    metric_definition_version_id: Mapped[int | None] = mapped_column(
++        BigInteger,
++        ForeignKey("outbox.metric_definition_version.id"),
++        nullable=True,
++        index=True,
++    )
++
++    metric_code: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
++
++    labels_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
++
++    labels_json: Mapped[dict[str, Any]] = mapped_column(
++        JSONB,
++        nullable=False,
++        default=dict,
++    )
++
++    value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
++
++    updated_at: Mapped[datetime] = mapped_column(
++        DateTime(timezone=True),
++        server_default=func.now(),
++        nullable=False,
++    )
++
++    project: Mapped["Project"] = relationship()
++    event_type: Mapped["EventType"] = relationship()
++    metric_definition: Mapped["MetricDefinition | None"] = relationship()
++    metric_definition_version: Mapped["MetricDefinitionVersion | None"] = relationship()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1zip/repositories/metric_state_repository.py ob1patch/repositories/metric_state_repository.py
+--- ob1zip/repositories/metric_state_repository.py	1970-01-01 00:00:00.000000000 +0000
++++ ob1patch/repositories/metric_state_repository.py	2026-06-22 15:28:34.896896589 +0000
+@@ -0,0 +1,212 @@
++from __future__ import annotations
++
++from collections.abc import Iterable
++from dataclasses import dataclass
++from datetime import datetime, UTC
++import hashlib
++import json
++from typing import Any
++
++from sqlalchemy import select
++from sqlalchemy.dialects.postgresql import insert
++from sqlalchemy.orm import Session
++
++from app.models.analytical_observation import AnalyticalObservation
++from app.models.metric_checkpoint import MetricCheckpoint
++from app.models.metric_state import MetricState
++
++
++@dataclass(frozen=True)
++class MetricStateDelta:
++    """
++    Aggregation delta for one Prometheus time series.
++
++    Args:
++        project_id: Project owning the metric series.
++        event_type_id: EventType that produced the metric series.
++        metric_definition_id: Optional MetricDefinition source id.
++        metric_definition_version_id: Optional MetricDefinitionVersion source id.
++        metric_code: Prometheus-compatible logical metric code.
++        labels_json: Label set identifying the Prometheus series.
++        labels_hash: Stable hash generated from labels_json.
++        value: Numeric delta to add to the current counter state.
++    """
++
++    project_id: int
++    event_type_id: int
++    metric_definition_id: int | None
++    metric_definition_version_id: int | None
++    metric_code: str
++    labels_json: dict[str, Any]
++    labels_hash: str
++    value: float
++
++
++class MetricStateRepository:
++    """
++    Repository for Prometheus-ready metric state and aggregation checkpoints.
++
++    The repository only performs persistence operations. Transaction boundaries
++    remain owned by the service or worker that orchestrates aggregation.
++    """
++
++    def __init__(self, db: Session) -> None:
++        self.db = db
++
++    def find_observations_after(
++        self,
++        observation_id: int,
++        limit: int = 1000,
++    ) -> list[AnalyticalObservation]:
++        """
++        Load analytical observations not yet aggregated into MetricState.
++
++        Args:
++            observation_id: Last processed observation id.
++            limit: Maximum number of observations to load.
++
++        Returns:
++            Ordered observations with id greater than observation_id.
++        """
++
++        statement = (
++            select(AnalyticalObservation)
++            .where(AnalyticalObservation.id > observation_id)
++            .order_by(AnalyticalObservation.id.asc())
++            .limit(limit)
++        )
++
++        return list(self.db.execute(statement).scalars().all())
++
++    def get_or_create_checkpoint(
++        self,
++        checkpoint_name: str,
++    ) -> MetricCheckpoint:
++        """
++        Return an existing checkpoint or create an initial one at position 0.
++
++        Args:
++            checkpoint_name: Logical checkpoint stream name.
++
++        Returns:
++            Persistent MetricCheckpoint instance.
++        """
++
++        statement = (
++            select(MetricCheckpoint)
++            .where(MetricCheckpoint.checkpoint_name == checkpoint_name)
++            .with_for_update()
++        )
++
++        checkpoint = self.db.execute(statement).scalar_one_or_none()
++
++        if checkpoint is not None:
++            return checkpoint
++
++        checkpoint = MetricCheckpoint(
++            checkpoint_name=checkpoint_name,
++            last_processed_observation_id=0,
++        )
++        self.db.add(checkpoint)
++        self.db.flush()
++
++        return checkpoint
++
++    def upsert_delta(self, delta: MetricStateDelta) -> None:
++        """
++        Add a delta to the current value of one Prometheus metric series.
++
++        Args:
++            delta: Aggregated value to merge into MetricState.
++        """
++
++        now = datetime.now(UTC)
++
++        statement = (
++            insert(MetricState)
++            .values(
++                project_id=delta.project_id,
++                event_type_id=delta.event_type_id,
++                metric_definition_id=delta.metric_definition_id,
++                metric_definition_version_id=delta.metric_definition_version_id,
++                metric_code=delta.metric_code,
++                labels_hash=delta.labels_hash,
++                labels_json=delta.labels_json,
++                value=delta.value,
++                updated_at=now,
++            )
++            .on_conflict_do_update(
++                constraint="uq_metric_state_series",
++                set_={
++                    "value": MetricState.value + delta.value,
++                    "labels_json": delta.labels_json,
++                    "metric_definition_id": delta.metric_definition_id,
++                    "metric_definition_version_id": delta.metric_definition_version_id,
++                    "updated_at": now,
++                },
++            )
++        )
++
++        self.db.execute(statement)
++
++    def update_checkpoint(
++        self,
++        checkpoint: MetricCheckpoint,
++        last_processed_observation_id: int,
++    ) -> MetricCheckpoint:
++        """
++        Move the checkpoint to the latest durably aggregated observation.
++
++        Args:
++            checkpoint: Locked checkpoint row.
++            last_processed_observation_id: Last observation id included in state.
++
++        Returns:
++            Updated checkpoint instance.
++        """
++
++        checkpoint.last_processed_observation_id = last_processed_observation_id
++        checkpoint.updated_at = datetime.now(UTC)
++        self.db.add(checkpoint)
++        self.db.flush()
++
++        return checkpoint
++
++    def find_all_states(self) -> list[MetricState]:
++        """
++        Return all Prometheus-ready metric states ordered by metric name.
++
++        Returns:
++            Materialized metric states.
++        """
++
++        statement = (
++            select(MetricState)
++            .order_by(
++                MetricState.metric_code.asc(),
++                MetricState.labels_hash.asc(),
++            )
++        )
++
++        return list(self.db.execute(statement).scalars().all())
++
++
++def build_labels_hash(labels: dict[str, Any]) -> str:
++    """
++    Build a stable SHA-256 hash for a Prometheus label set.
++
++    Args:
++        labels: JSON-compatible labels dictionary.
++
++    Returns:
++        Hexadecimal SHA-256 hash of the normalized labels.
++    """
++
++    normalized = json.dumps(
++        labels,
++        sort_keys=True,
++        separators=(",", ":"),
++        ensure_ascii=False,
++    )
++
++    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1zip/services/metric_state_aggregation_service.py ob1patch/services/metric_state_aggregation_service.py
+--- ob1zip/services/metric_state_aggregation_service.py	1970-01-01 00:00:00.000000000 +0000
++++ ob1patch/services/metric_state_aggregation_service.py	2026-06-22 15:28:34.909275944 +0000
+@@ -0,0 +1,188 @@
++from __future__ import annotations
++
++from collections import defaultdict
++from typing import Any, Protocol
++
++from app.models.analytical_observation import AnalyticalObservation
++from app.models.metric_checkpoint import MetricCheckpoint
++from app.models.metric_state import MetricState
++from app.repositories.metric_state_repository import (
++    MetricStateDelta,
++    build_labels_hash,
++)
++
++
++class MetricStateRepositoryProtocol(Protocol):
++    def get_or_create_checkpoint(self, checkpoint_name: str) -> MetricCheckpoint:
++        ...
++
++    def find_observations_after(
++        self,
++        observation_id: int,
++        limit: int = 1000,
++    ) -> list[AnalyticalObservation]:
++        ...
++
++    def upsert_delta(self, delta: MetricStateDelta) -> None:
++        ...
++
++    def update_checkpoint(
++        self,
++        checkpoint: MetricCheckpoint,
++        last_processed_observation_id: int,
++    ) -> MetricCheckpoint:
++        ...
++
++    def find_all_states(self) -> list[MetricState]:
++        ...
++
++
++class MetricStateAggregationService:
++    """
++    Aggregate AnalyticalObservation rows into Prometheus-ready MetricState rows.
++
++    This service is the bridge between the analytical observation log and the
++    /metrics endpoint. It processes observations incrementally using a durable
++    checkpoint so that counters are not recalculated during Prometheus scrapes.
++    """
++
++    DEFAULT_CHECKPOINT_NAME = "prometheus_metric_state"
++
++    def __init__(
++        self,
++        metric_state_repository: MetricStateRepositoryProtocol,
++    ) -> None:
++        self.metric_state_repository = metric_state_repository
++
++    def aggregate_next_batch(
++        self,
++        limit: int = 1000,
++        checkpoint_name: str = DEFAULT_CHECKPOINT_NAME,
++    ) -> int:
++        """
++        Aggregate the next batch of analytical observations into MetricState.
++
++        The caller owns the surrounding transaction. MetricState updates and the
++        checkpoint update must be committed atomically by that caller.
++
++        Args:
++            limit: Maximum number of observations to aggregate.
++            checkpoint_name: Logical checkpoint stream name.
++
++        Returns:
++            Number of observations consumed from the analytical log.
++        """
++
++        checkpoint = self.metric_state_repository.get_or_create_checkpoint(
++            checkpoint_name=checkpoint_name,
++        )
++
++        observations = self.metric_state_repository.find_observations_after(
++            observation_id=checkpoint.last_processed_observation_id,
++            limit=limit,
++        )
++
++        if not observations:
++            return 0
++
++        deltas = self._aggregate_observations(observations)
++
++        for delta in deltas:
++            self.metric_state_repository.upsert_delta(delta)
++
++        self.metric_state_repository.update_checkpoint(
++            checkpoint=checkpoint,
++            last_processed_observation_id=observations[-1].id,
++        )
++
++        return len(observations)
++
++    def find_all_states(self) -> list[MetricState]:
++        """
++        Return all materialized Prometheus metric states.
++
++        Returns:
++            Current metric state rows.
++        """
++
++        return self.metric_state_repository.find_all_states()
++
++    def _aggregate_observations(
++        self,
++        observations: list[AnalyticalObservation],
++    ) -> list[MetricStateDelta]:
++        """
++        Collapse raw observations into one delta per metric series.
++
++        Args:
++            observations: Analytical observations loaded after the checkpoint.
++
++        Returns:
++            Summed deltas grouped by project, event type, metric code and labels.
++        """
++
++        grouped: dict[tuple[int, int, str, str], MetricStateDelta] = {}
++        values: defaultdict[tuple[int, int, str, str], float] = defaultdict(float)
++
++        for observation in observations:
++            labels = self._normalize_labels(observation.dimensions_json)
++            labels_hash = build_labels_hash(labels)
++            key = (
++                observation.project_id,
++                observation.event_type_id,
++                observation.metric_code,
++                labels_hash,
++            )
++
++            values[key] += float(observation.value)
++
++            if key not in grouped:
++                grouped[key] = MetricStateDelta(
++                    project_id=observation.project_id,
++                    event_type_id=observation.event_type_id,
++                    metric_definition_id=observation.metric_definition_id,
++                    metric_definition_version_id=(
++                        observation.metric_definition_version_id
++                    ),
++                    metric_code=observation.metric_code,
++                    labels_json=labels,
++                    labels_hash=labels_hash,
++                    value=0.0,
++                )
++
++        return [
++            MetricStateDelta(
++                project_id=delta.project_id,
++                event_type_id=delta.event_type_id,
++                metric_definition_id=delta.metric_definition_id,
++                metric_definition_version_id=delta.metric_definition_version_id,
++                metric_code=delta.metric_code,
++                labels_json=delta.labels_json,
++                labels_hash=delta.labels_hash,
++                value=values[key],
++            )
++            for key, delta in grouped.items()
++        ]
++
++    def _normalize_labels(
++        self,
++        labels: dict[str, Any] | None,
++    ) -> dict[str, str]:
++        """
++        Convert observation dimensions into Prometheus label strings.
++
++        Args:
++            labels: Raw JSONB dimensions from AnalyticalObservation.
++
++        Returns:
++            Deterministically ordered string labels.
++        """
++
++        if not labels:
++            return {}
++
++        return {
++            str(key): str(value)
++            for key, value in sorted(labels.items())
++            if value is not None
++        }
+diff -ruN '--exclude=__pycache__' '--exclude=*.pyc' ob1zip/worker.py ob1patch/worker.py
+--- ob1zip/worker.py	2026-06-10 17:12:29.000000000 +0000
++++ ob1patch/worker.py	2026-06-22 15:28:53.394849429 +0000
+@@ -333,6 +333,36 @@
+         deliver_one_delivery(delivery_id)
+ 
+ 
++def aggregate_prometheus_metric_state() -> None:
++    """
++    Aggregate analytical observations into Prometheus-ready metric state.
++
++    MetricState and MetricCheckpoint are updated within the same database
++    transaction so the aggregation is resilient to worker crashes and avoids
++    both data loss and double counting.
++    """
++
++    db = SessionLocal()
++
++    try:
++        service = ServiceFactory.create_metric_state_aggregation_service(db)
++        aggregated_count = service.aggregate_next_batch(limit=1000)
++        db.commit()
++
++        if aggregated_count > 0:
++            logger.info(
++                f"[OB1-worker] metric_state aggregated "
++                f"observation_count={aggregated_count}"
++            )
++
++    except Exception as exc:
++        db.rollback()
++        logger.info(f"[OB1-worker] metric_state aggregation error={exc}")
++
++    finally:
++        db.close()
++
++
+ def process_outbox() -> None:
+ 
+     publish_runtime_event(
+@@ -344,6 +374,7 @@
+ 
+     route_received_events()
+     deliver_pending_deliveries()
++    aggregate_prometheus_metric_state()
+ 
+     db = SessionLocal()
+ 

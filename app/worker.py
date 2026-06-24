@@ -333,6 +333,36 @@ def deliver_pending_deliveries() -> None:
         deliver_one_delivery(delivery_id)
 
 
+def aggregate_prometheus_metric_state() -> None:
+    """
+    Aggregate analytical observations into Prometheus-ready metric state.
+
+    MetricState and MetricCheckpoint are updated within the same database
+    transaction so the aggregation is resilient to worker crashes and avoids
+    both data loss and double counting.
+    """
+
+    db = SessionLocal()
+
+    try:
+        service = ServiceFactory.create_metric_state_aggregation_service(db)
+        aggregated_count = service.aggregate_all_streams(limit_per_stream=1000)
+        db.commit()
+
+        if aggregated_count > 0:
+            logger.info(
+                f"[OB1-worker] metric_state aggregated "
+                f"observation_count={aggregated_count}"
+            )
+
+    except Exception as exc:
+        db.rollback()
+        logger.info(f"[OB1-worker] metric_state aggregation error={exc}")
+
+    finally:
+        db.close()
+
+
 def process_outbox() -> None:
 
     publish_runtime_event(
@@ -344,6 +374,7 @@ def process_outbox() -> None:
 
     route_received_events()
     deliver_pending_deliveries()
+    aggregate_prometheus_metric_state()
 
     db = SessionLocal()
 

@@ -1,0 +1,27 @@
+--- services/metric_state_aggregation_service.py	2026-06-22 16:47:51.014617236 +0000
++++ services/metric_state_aggregation_service.py	2026-06-22 16:47:18.325289981 +0000
+@@ -7,17 +7,24 @@
+ from app.models.metric_checkpoint import MetricCheckpoint
+ from app.models.metric_state import MetricState
+ from app.repositories.metric_state_repository import (
++    MetricObservationStream,
+     MetricStateDelta,
++    build_checkpoint_name,
+     build_labels_hash,
+ )
+ 
+ 
+ class MetricStateRepositoryProtocol(Protocol):
++    def find_observation_streams(self) -> list[MetricObservationStream]:
++        ...
++
+     def get_or_create_checkpoint(self, checkpoint_name: str) -> MetricCheckpoint:
+         ...
+ 
+     def find_observations_after(
+         self,
++        project_id: int,
++        event_type_id: int,
+         observation_id: int,
+         limit: int = 1000,
+     ) -> list[AnalyticalObservation]:

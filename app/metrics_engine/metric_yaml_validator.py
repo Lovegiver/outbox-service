@@ -11,12 +11,28 @@ from app.metrics_engine.schema_path_resolver import (
 )
 
 
-ALLOWED_VALUE_TYPES = {"number", "integer"}
+TRANSFORM_ALLOWED_TYPES = {
+    "identity": {"number", "integer"},
+    "count": {"array"},
+    "unique_count": {"array"},
+    "occurrence_count": {"array"},
+    "length": {"string"},
+    "occurrence": {"string", "integer", "boolean"},
+    "to_number": {"boolean"},
+    "timestamp": {"string"},
+    "hour_of_day": {"string"},
+    "day_of_week": {"string"},
+    "sum": {"array"},
+    "avg": {"array"},
+    "min": {"array"},
+    "max": {"array"},
+}
 
 
 @dataclass(frozen=True)
 class ValidatedObservation:
     code: str
+    transform: str
     value_path: ResolvedPath
     labels: dict[str, ResolvedPath | str]
 
@@ -73,6 +89,7 @@ def _validate_observation(
     code = observation.get("code")
     value_path = observation.get("value_path")
     labels = observation.get("labels", {})
+    transform = observation.get("transform", "identity")
 
     if not isinstance(code, str) or not code:
         raise MetricYamlValidationError("Observation 'code' is required")
@@ -82,21 +99,34 @@ def _validate_observation(
             f"Observation '{code}' must define a non-empty 'value_path'"
         )
 
+    if not isinstance(transform, str) or not transform:
+        raise MetricYamlValidationError(
+            f"Observation '{code}' transform must be a non-empty string"
+        )
+
+    if transform not in TRANSFORM_ALLOWED_TYPES:
+        raise MetricYamlValidationError(
+            f"Observation '{code}' uses unsupported transform '{transform}'"
+        )
+
     if not isinstance(labels, dict):
         raise MetricYamlValidationError(
             f"Observation '{code}' labels must be an object"
         )
 
-    resolved_value_path = _resolve_required_path(
+    resolved_value_path = _resolve_existing_path(
         path=value_path,
         schema_graph=schema_graph,
         context=f"Observation '{code}' value_path",
     )
 
-    if resolved_value_path.json_type not in ALLOWED_VALUE_TYPES:
+    allowed_types = TRANSFORM_ALLOWED_TYPES[transform]
+
+    if resolved_value_path.json_type not in allowed_types:
         raise MetricYamlValidationError(
-            f"Observation '{code}' value_path must resolve to a numeric type, "
-            f"got '{resolved_value_path.json_type}'"
+            f"Observation '{code}' transform '{transform}' does not support "
+            f"value_path type '{resolved_value_path.json_type}'. "
+            f"Allowed types: {sorted(allowed_types)}"
         )
 
     validated_labels = _validate_labels(
@@ -108,6 +138,7 @@ def _validate_observation(
 
     return ValidatedObservation(
         code=code,
+        transform=transform,
         value_path=resolved_value_path,
         labels=validated_labels,
     )
@@ -143,7 +174,7 @@ def _validate_labels(
                 "must be a non-empty string path or '$index'"
             )
 
-        resolved_label_path = _resolve_required_path(
+        resolved_label_path = _resolve_existing_path(
             path=label_path,
             schema_graph=schema_graph,
             context=f"Observation '{observation_code}' label '{label_name}'",
@@ -184,19 +215,15 @@ def _validate_iterator_alignment(
         )
 
 
-def _resolve_required_path(
+def _resolve_existing_path(
     path: str,
     schema_graph,
     context: str,
 ) -> ResolvedPath:
     try:
-        resolved_path = resolve_path(schema_graph, path)
+        return resolve_path(schema_graph, path)
+
     except SchemaPathResolutionError as exc:
-        raise MetricYamlValidationError(f"{context} is invalid: {exc}") from exc
-
-    if not resolved_path.required:
         raise MetricYamlValidationError(
-            f"{context} targets an optional JSON field: {path}"
-        )
-
-    return resolved_path
+            f"{context} is invalid: {exc}"
+        ) from exc

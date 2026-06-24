@@ -7,6 +7,8 @@ from app.models.metric_definition import MetricDefinition
 from app.models.metric_definition_version import MetricDefinitionVersion
 from app.models.metric_definition_version_schema import MetricDefinitionVersionSchema
 from app.models.metrics_token import MetricsToken
+from app.models.metric_checkpoint import MetricCheckpoint
+from app.models.metric_state import MetricState
 from app.models.processing_chain import ProcessingChain
 from app.models.processing_plan import ProcessingPlan
 from app.models.project import Project
@@ -26,6 +28,8 @@ __all__ = [
     "SystemMetric",
     "ApiKey",
     "MetricsToken",
+    "MetricCheckpoint",
+    "MetricState",
     "ProjectMember",
     "UserAccount",
     "MetricDefinition",

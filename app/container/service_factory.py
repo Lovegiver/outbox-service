@@ -12,6 +12,7 @@ from app.repositories.project_repository import ProjectRepository
 from app.repositories.route_repository import RouteRepository
 from app.repositories.schema_repository import SchemaRepository
 from app.repositories.system_metric_repository import SystemMetricRepository
+from app.repositories.metric_state_repository import MetricStateRepository
 from app.repositories.user_repository import UserRepository
 from app.services.api_key_service import ApiKeyService
 from app.services.auth_service import AuthService
@@ -47,6 +48,9 @@ from app.services.metric_definition_version_schema_service import (
 )
 from app.services.metrics_extraction_service import (
     MetricsExtractionService,
+)
+from app.services.metric_state_aggregation_service import (
+    MetricStateAggregationService,
 )
 from app.services.processing_chain_activation_service import (
     ProcessingChainActivationService,
@@ -335,3 +339,21 @@ class ServiceFactory:
             A configured MetricDefinitionAdminService instance.
         """
         return MetricDefinitionAdminService(db)
+
+    @classmethod
+    def create_metric_state_aggregation_service(
+        cls,
+        db: Session,
+    ) -> MetricStateAggregationService:
+        """
+        Create the service responsible for materializing Prometheus metric state.
+
+        Args:
+            db: SQLAlchemy session used by repositories.
+
+        Returns:
+            Configured MetricStateAggregationService instance.
+        """
+        return MetricStateAggregationService(
+            metric_state_repository=MetricStateRepository(db),
+        )

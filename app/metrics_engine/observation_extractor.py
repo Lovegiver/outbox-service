@@ -86,6 +86,7 @@ def extract_observations_from_compiled_plan(
     for observation_definition in compiled_plan_json.get("observations", []):
         metric_code = observation_definition["metric_code"]
         value_path = observation_definition["value"]["path"]
+        transform = observation_definition["transform"]
 
         value_matches = parse(value_path).find(payload)
 
@@ -123,9 +124,10 @@ def extract_observations_from_compiled_plan(
             observations.append(
                 Observation(
                     metric_code=metric_code,
-                    value=_to_float(
+                    value=_apply_transform(
+                        transform=transform,
                         value=match.value,
-                        observation_code=metric_code,
+                        metric_code=metric_code,
                     ),
                     dimensions=dimensions,
                 )
@@ -219,7 +221,7 @@ def _to_float(value: Any, observation_code: str) -> float:
             f"Observation '{observation_code}' value must be numeric, got boolean"
         )
 
-    if not isinstance(value, int | float):
+    if not isinstance(value, (int, float)):
         raise ObservationExtractionError(
             f"Observation '{observation_code}' value must be numeric, "
             f"got {type(value).__name__}"
@@ -228,12 +230,55 @@ def _to_float(value: Any, observation_code: str) -> float:
     return float(value)
 
 
+def _apply_transform(
+    transform: str,
+    value: Any,
+    metric_code: str,
+) -> float:
+    if transform == "identity":
+        return _to_float(
+            value=value,
+            observation_code=metric_code,
+        )
+
+    if transform == "count":
+        if not isinstance(value, list):
+            raise ObservationExtractionError(
+                f"Observation '{metric_code}' transform 'count' expects array, "
+                f"got {type(value).__name__}"
+            )
+
+        return float(len(value))
+
+    if transform == "length":
+        if not isinstance(value, str):
+            raise ObservationExtractionError(
+                f"Observation '{metric_code}' transform 'length' expects string, "
+                f"got {type(value).__name__}"
+            )
+
+        return float(len(value))
+
+    if transform == "to_number":
+        if not isinstance(value, bool):
+            raise ObservationExtractionError(
+                f"Observation '{metric_code}' transform 'to_number' expects boolean, "
+                f"got {type(value).__name__}"
+            )
+
+        return 1.0 if value else 0.0
+
+    raise ObservationExtractionError(
+        f"Observation '{metric_code}' uses unsupported runtime transform '{transform}'"
+    )
+
+
 def _to_dimension_value(
     value: Any,
     observation_code: str,
     label_name: str,
 ) -> DimensionValue:
-    if isinstance(value, str | int | float | bool):
+    if isinstance(value, (str, int, float, bool)):
         return value
 
     raise ObservationExtractionError(

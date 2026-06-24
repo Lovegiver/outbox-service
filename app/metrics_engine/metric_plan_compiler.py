@@ -11,6 +11,7 @@ def compile_metric_yaml_to_json(
         "observations": [
             {
                 "metric_code": observation.code,
+                "transform": observation.transform,
                 "value": {
                     "path": observation.value_path.path,
                     "json_type": observation.value_path.json_type,
