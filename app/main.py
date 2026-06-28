@@ -17,6 +17,9 @@ from app.api.admin.event_type_router import (
 from app.api.admin.metric_definition_router import (
     router as metric_definition_router,
 )
+from app.api.admin.metric_builder_router import (
+    router as metric_builder_router,
+)
 from app.api.admin.project_api import router as admin_project_router
 from app.api.admin.project_member_router import (
     router as project_member_router,
@@ -89,6 +92,7 @@ app.include_router(api_key_router)
 app.include_router(dead_letter_router)
 app.include_router(project_member_router)
 app.include_router(metric_definition_router)
+app.include_router(metric_builder_router)
 app.include_router(runtime_router)
 app.include_router(runtime_metrics_router)
 

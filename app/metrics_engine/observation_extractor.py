@@ -18,6 +18,15 @@ class ExtractionLimits:
     max_matches_per_observation: int = 200
 
 
+@dataclass(frozen=True)
+class _ConstantMatch:
+    """
+    Minimal match object used by constant counter observations.
+    """
+
+    value: float
+
+
 def extract_observations(
     payload: dict[str, Any],
     metric_yaml: ValidatedMetricYaml,
@@ -28,20 +37,24 @@ def extract_observations(
     effective_limits = limits or ExtractionLimits()
 
     for observation_definition in metric_yaml.observations:
-        value_matches = parse(observation_definition.value_path.path).find(payload)
+        if observation_definition.transform == "constant":
+            value_matches = [_ConstantMatch(1.0)]
 
-        if not value_matches:
-            raise ObservationExtractionError(
-                f"No value found for observation '{observation_definition.code}' "
-                f"at path '{observation_definition.value_path.path}'"
-            )
+        else:
+            value_matches = parse(observation_definition.value_path.path).find(payload)
 
-        if len(value_matches) > effective_limits.max_matches_per_observation:
-            raise ObservationExtractionError(
-                f"Observation '{observation_definition.code}' produced "
-                f"{len(value_matches)} matches, exceeding limit "
-                f"{effective_limits.max_matches_per_observation}"
-            )
+            if not value_matches:
+                raise ObservationExtractionError(
+                    f"No value found for observation '{observation_definition.code}' "
+                    f"at path '{observation_definition.value_path.path}'"
+                )
+
+            if len(value_matches) > effective_limits.max_matches_per_observation:
+                raise ObservationExtractionError(
+                    f"Observation '{observation_definition.code}' produced "
+                    f"{len(value_matches)} matches, exceeding limit "
+                    f"{effective_limits.max_matches_per_observation}"
+                )
 
         label_matches_by_name = _extract_label_matches_by_name(
             payload=payload,
@@ -64,9 +77,10 @@ def extract_observations(
             observations.append(
                 Observation(
                     metric_code=observation_definition.code,
-                    value=_to_float(
+                    value=_apply_transform(
+                        transform=observation_definition.transform,
                         value=match.value,
-                        observation_code=observation_definition.code,
+                        metric_code=observation_definition.code,
                     ),
                     dimensions=dimensions,
                 )
@@ -88,20 +102,24 @@ def extract_observations_from_compiled_plan(
         value_path = observation_definition["value"]["path"]
         transform = observation_definition["transform"]
 
-        value_matches = parse(value_path).find(payload)
+        if transform == "constant":
+            value_matches = [_ConstantMatch(1.0)]
 
-        if not value_matches:
-            raise ObservationExtractionError(
-                f"No value found for observation '{metric_code}' "
-                f"at path '{value_path}'"
-            )
+        else:
+            value_matches = parse(value_path).find(payload)
 
-        if len(value_matches) > effective_limits.max_matches_per_observation:
-            raise ObservationExtractionError(
-                f"Observation '{metric_code}' produced "
-                f"{len(value_matches)} matches, exceeding limit "
-                f"{effective_limits.max_matches_per_observation}"
-            )
+            if not value_matches:
+                raise ObservationExtractionError(
+                    f"No value found for observation '{metric_code}' "
+                    f"at path '{value_path}'"
+                )
+
+            if len(value_matches) > effective_limits.max_matches_per_observation:
+                raise ObservationExtractionError(
+                    f"Observation '{metric_code}' produced "
+                    f"{len(value_matches)} matches, exceeding limit "
+                    f"{effective_limits.max_matches_per_observation}"
+                )
 
         label_matches_by_name = _extract_compiled_label_matches_by_name(
             payload=payload,
@@ -267,6 +285,9 @@ def _apply_transform(
             )
 
         return 1.0 if value else 0.0
+
+    if transform == "constant":
+        return 1.0
 
     raise ObservationExtractionError(
         f"Observation '{metric_code}' uses unsupported runtime transform '{transform}'"

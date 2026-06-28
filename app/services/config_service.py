@@ -1,18 +1,32 @@
 import os
-from pathlib import Path
-
 import yaml
+
 from dotenv import load_dotenv
+from pathlib import Path
+from typing import Optional
 
 
 class ConfigService:
-    def __init__(self, env: str | None = None):
+    def __init__(self, env: Optional[str] = None):
         load_dotenv()
-        self.env = env or os.getenv("OUTBOX_ENV", "dev")
+
+        resolved_env = env or os.getenv("OUTBOX_ENV")
+
+        if not resolved_env:
+            raise RuntimeError(
+                "OUTBOX_ENV environment variable is required."
+            )
+
+        self.env = resolved_env
         self.config_path = Path("config") / f"app.{self.env}.yaml"
         self.config = self._load()
 
     def _load(self) -> dict:
+        if not self.config_path.exists():
+            raise FileNotFoundError(
+                f"Configuration file not found: {self.config_path}"
+            )
+
         with self.config_path.open(encoding="utf-8") as file:
             return yaml.safe_load(file)
 
@@ -43,3 +57,17 @@ class ConfigService:
             .get("delivery", {})
             .get("retry_delay_seconds", 30)
         )
+
+    def get_database_url(self) -> str:
+        database_url = (
+            self.config
+            .get("database", {})
+            .get("url")
+        )
+
+        if not database_url:
+            raise RuntimeError(
+                "database.url is required in application configuration."
+            )
+
+        return str(database_url)

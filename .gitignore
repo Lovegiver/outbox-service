@@ -12,5 +12,8 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+*.zip
+*.patch
+*.patch*
 
 frontend/ob1-admin/

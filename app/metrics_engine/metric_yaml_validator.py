@@ -12,6 +12,7 @@ from app.metrics_engine.schema_path_resolver import (
 
 
 TRANSFORM_ALLOWED_TYPES = {
+    "constant": set(),
     "identity": {"number", "integer"},
     "count": {"array"},
     "unique_count": {"array"},
@@ -94,11 +95,6 @@ def _validate_observation(
     if not isinstance(code, str) or not code:
         raise MetricYamlValidationError("Observation 'code' is required")
 
-    if not isinstance(value_path, str) or not value_path:
-        raise MetricYamlValidationError(
-            f"Observation '{code}' must define a non-empty 'value_path'"
-        )
-
     if not isinstance(transform, str) or not transform:
         raise MetricYamlValidationError(
             f"Observation '{code}' transform must be a non-empty string"
@@ -114,20 +110,38 @@ def _validate_observation(
             f"Observation '{code}' labels must be an object"
         )
 
-    resolved_value_path = _resolve_existing_path(
-        path=value_path,
-        schema_graph=schema_graph,
-        context=f"Observation '{code}' value_path",
-    )
-
-    allowed_types = TRANSFORM_ALLOWED_TYPES[transform]
-
-    if resolved_value_path.json_type not in allowed_types:
-        raise MetricYamlValidationError(
-            f"Observation '{code}' transform '{transform}' does not support "
-            f"value_path type '{resolved_value_path.json_type}'. "
-            f"Allowed types: {sorted(allowed_types)}"
+    if transform == "constant":
+        if value_path is not None:
+            raise MetricYamlValidationError(
+                f"Observation '{code}' transform 'constant' must not define value_path"
+            )
+        resolved_value_path = ResolvedPath(
+            path="",
+            json_type="constant",
+            iterator_path=None,
+            required=True,
         )
+
+    else:
+        if not isinstance(value_path, str) or not value_path:
+            raise MetricYamlValidationError(
+                f"Observation '{code}' must define a non-empty 'value_path'"
+            )
+
+        resolved_value_path = _resolve_existing_path(
+            path=value_path,
+            schema_graph=schema_graph,
+            context=f"Observation '{code}' value_path",
+        )
+
+        allowed_types = TRANSFORM_ALLOWED_TYPES[transform]
+
+        if resolved_value_path.json_type not in allowed_types:
+            raise MetricYamlValidationError(
+                f"Observation '{code}' transform '{transform}' does not support "
+                f"value_path type '{resolved_value_path.json_type}'. "
+                f"Allowed types: {sorted(allowed_types)}"
+            )
 
     validated_labels = _validate_labels(
         observation_code=code,

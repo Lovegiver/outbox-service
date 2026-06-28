@@ -11,3 +11,6 @@ security:
     secret_key: "replace-with-long-random-secret"
     algorithm: "HS256"
     access_token_expire_minutes: 30
+
+database:
+  url: postgresql+psycopg://CHANGE_ME:CHANGE_ME@localhost:5432/outbox
