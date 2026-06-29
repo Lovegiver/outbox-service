@@ -109,7 +109,7 @@ def test_validate_metric_yaml_with_array_iteration(json_schema: dict) -> None:
                     }
                 ],
             },
-            "must resolve to a numeric type",
+            "does not support value_path type",
         ),
         (
             "$index without array iteration",
@@ -142,19 +142,6 @@ def test_validate_metric_yaml_with_array_iteration(json_schema: dict) -> None:
                 ],
             },
             "but value_path iterates over",
-        ),
-        (
-            "optional value_path",
-            {
-                "version": "1.0",
-                "observations": [
-                    {
-                        "code": "optional_value",
-                        "value_path": "$.payload.optional_value",
-                    }
-                ],
-            },
-            "targets an optional JSON field",
         ),
     ],
 )

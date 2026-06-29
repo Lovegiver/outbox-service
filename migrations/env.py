@@ -6,6 +6,9 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from app.database import Base
+# Required for Alembic autogenerate.
+# Import model modules so SQLAlchemy registers them in Base.metadata.
+from app import models  # noqa: F401
 from app.services.config_service import ConfigService
 
 
