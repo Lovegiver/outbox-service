@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from datetime import datetime, timezone
+from psycopg.types.json import Jsonb
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -139,7 +141,7 @@ class ObjectFactory:
                 "event_type_id": record.event_type.id,
                 "json_version_client": record.json_version_client,
                 "json_version_internal": record.json_version_internal,
-                "json_schema": record.json_schema,
+                "json_schema": Jsonb(record.json_schema),
                 "is_active": record.is_active,
             },
         )
@@ -159,7 +161,7 @@ class ObjectFactory:
                 "destination_url": record.destination_url,
                 "is_active": record.is_active,
                 "auth_type": record.auth_type,
-                "auth_config": record.auth_config,
+                "auth_config": Jsonb(record.auth_config) if record.auth_config is not None else None,
                 "secret_ref": record.secret_ref,
             },
         )
@@ -180,8 +182,10 @@ class ObjectFactory:
                 "event_type_id": record.event_type.id,
                 "json_version_internal": record.json_version_internal,
                 "schema_definition_id": record.schema_definition.id,
-                "payload": record.payload,
+                "payload": Jsonb(record.payload),
                 "status": record.status,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
             },
         )
         return PersistedEvent(
@@ -293,7 +297,7 @@ class ObjectFactory:
                 "metric_definition_version_id": record.metric_definition_version.id,
                 "position": record.position,
                 "is_active": record.is_active,
-                "compiled_plan_json": record.compiled_plan_json,
+                "compiled_plan_json": Jsonb(record.compiled_plan_json) if record.compiled_plan_json is not None else None,
             },
         )
         return PersistedProcessingPlan(
@@ -317,7 +321,7 @@ class ObjectFactory:
                 "metric_definition_version_id": record.metric_definition_version.id,
                 "metric_code": record.metric_code,
                 "value": record.value,
-                "dimensions_json": record.dimensions_json,
+                "dimensions_json": Jsonb(record.dimensions_json),
             },
         )
         return PersistedAnalyticalObservation(
@@ -342,7 +346,7 @@ class ObjectFactory:
                 ),
                 "metric_code": record.metric_code,
                 "labels_hash": labels_hash,
-                "labels_json": record.labels_json,
+                "labels_json": Jsonb(record.labels_json),
                 "value": record.value,
             },
         )

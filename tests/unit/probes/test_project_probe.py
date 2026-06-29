@@ -1,20 +1,20 @@
 from tests.domain.record import ProjectRecord
 from tests.infrastructure.object_factory import ObjectFactory
-from tests.probes.project_probe import ProjectProbe
+from tests.infrastructure.probe import Probe
 
 
 def test_project_probe_returns_false_when_project_does_not_exist(
-    project_probe: ProjectProbe,
+    probe: Probe,
 ) -> None:
-    assert not project_probe.exists_by_name("missing-project")
+    assert not probe.project.exists_by_name("missing-project")
 
 
 def test_project_probe_returns_true_when_project_exists(
-    object_factory: ObjectFactory,
-    project_probe: ProjectProbe,
+    factory: ObjectFactory,
+    probe: Probe,
 ) -> None:
-    object_factory.create_project(
+    factory.project(
         ProjectRecord(name="Hermes")
     )
 
-    assert project_probe.exists_by_name("Hermes")
+    assert probe.project.exists_by_name("Hermes")

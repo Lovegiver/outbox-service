@@ -6,7 +6,12 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from tests.domain.persisted_object import PersistedObject
+from tests.domain.persisted_object import (
+    PersistedEventType,
+    PersistedObject,
+    PersistedProject,
+    PersistedUserAccount,
+)
 
 
 class BaseProbe:
@@ -72,6 +77,28 @@ class ProjectProbe(BaseProbe):
     def exists_by_name(self, name: str) -> bool:
         return self.exists_where("name = :name", {"name": name})
 
+    def get_by_name(
+        self,
+        name: str,
+    ) -> PersistedProject:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id, name
+                FROM outbox.project
+                WHERE name = :name
+                """
+            ),
+            {"name": name},
+        )
+
+        row = result.mappings().one()
+
+        return PersistedProject(
+            id=int(row["id"]),
+            name=str(row["name"]),
+        )
+
 
 class UserAccountProbe(BaseProbe):
     def __init__(self, connection: Connection):
@@ -79,6 +106,28 @@ class UserAccountProbe(BaseProbe):
 
     def exists_by_email(self, email: str) -> bool:
         return self.exists_where("email = :email", {"email": email})
+
+    def get_by_email(
+        self,
+        email: str,
+    ) -> PersistedUserAccount:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id, email
+                FROM outbox.user_account
+                WHERE email = :email
+                """
+            ),
+            {"email": email},
+        )
+
+        row = result.mappings().one()
+
+        return PersistedUserAccount(
+            id=int(row["id"]),
+            email=str(row["email"]),
+        )
 
 
 class ProjectMemberProbe(BaseProbe):
@@ -89,6 +138,25 @@ class ProjectMemberProbe(BaseProbe):
         return self.exists_where(
             "project_id = :project_id AND user_id = :user_id",
             {"project_id": project.id, "user_id": user.id},
+        )
+
+    def exists_by_project_user_and_role(
+        self,
+        project: PersistedObject,
+        user: PersistedObject,
+        role: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            project_id = :project_id
+            AND user_id = :user_id
+            AND role = :role
+            """,
+            {
+                "project_id": project.id,
+                "user_id": user.id,
+                "role": role,
+            },
         )
 
 
@@ -134,6 +202,42 @@ class EventTypeProbe(BaseProbe):
         return self.exists_where(
             "project_id = :project_id AND code = :code AND is_active = true",
             {"project_id": project.id, "code": code},
+        )
+
+    def get_by_code(
+        self,
+        code: str,
+    ) -> PersistedEventType:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT
+                    et.id,
+                    et.code,
+                    et.name,
+                    p.id AS project_id,
+                    p.name AS project_name
+                FROM outbox.event_type et
+                JOIN outbox.project p
+                    ON p.id = et.project_id
+                WHERE et.code = :code
+                """
+            ),
+            {"code": code},
+        )
+
+        row = result.mappings().one()
+
+        project = PersistedProject(
+            id=int(row["project_id"]),
+            name=str(row["project_name"]),
+        )
+
+        return PersistedEventType(
+            id=int(row["id"]),
+            project=project,
+            code=str(row["code"]),
+            name=str(row["name"]),
         )
 
 

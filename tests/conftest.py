@@ -77,3 +77,62 @@ def probe(
     db_connection: Connection,
 ) -> Probe:
     return Probe(db_connection)
+
+
+
+from tests.infrastructure.auth import AuthTestHelper  # noqa: E402
+
+@pytest.fixture
+def auth() -> AuthTestHelper:
+    return AuthTestHelper()
+
+
+
+from tests.infrastructure.seed import Seed  # noqa: E402
+
+@pytest.fixture
+def seed(
+    factory: ObjectFactory,
+) -> Seed:
+    return Seed(factory)
+
+
+
+from tests.infrastructure.assertions import TestAssertions  # noqa: E402
+
+@pytest.fixture
+def assertions(
+    probe: Probe,
+) -> TestAssertions:
+    return TestAssertions(probe)
+
+
+
+from tests.infrastructure.context import TestContext  # noqa: E402
+
+@pytest.fixture
+def ctx(
+    client: TestClient,
+    factory: ObjectFactory,
+    probe: Probe,
+    auth: AuthTestHelper,
+    seed: Seed,
+    assertions: TestAssertions,
+) -> TestContext:
+    return TestContext(
+        client=client,
+        factory=factory,
+        probe=probe,
+        auth=auth,
+        seed=seed,
+        assertions=assertions,
+    )
+
+
+
+from tests.bdd.registry import StepRegistry, create_step_registry  # noqa: E402
+
+@pytest.fixture
+def step_registry() -> StepRegistry:
+    return create_step_registry()
+

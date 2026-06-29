@@ -1,7 +1,7 @@
 from tests.domain.persisted_object import PersistedProject
 from tests.domain.record import EventTypeRecord, ProjectRecord
 from tests.infrastructure.object_factory import ObjectFactory
-from tests.probes.event_type_probe import EventTypeProbe
+from tests.infrastructure.probe import Probe
 
 
 missing_project = PersistedProject(
@@ -11,23 +11,23 @@ missing_project = PersistedProject(
 
 
 def test_event_type_probe_returns_false_when_event_type_does_not_exist(
-    event_type_probe: EventTypeProbe,
+    probe: Probe,
 ) -> None:
-    assert not event_type_probe.exists_by_project_and_code(
+    assert not probe.event_type.exists_by_project_and_code(
         project=missing_project,
         code="article.analyzed",
     )
 
 
 def test_event_type_probe_returns_true_when_event_type_exists(
-    object_factory: ObjectFactory,
-    event_type_probe: EventTypeProbe,
+    factory: ObjectFactory,
+    probe: Probe,
 ) -> None:
-    hermes = object_factory.create_project(
+    hermes = factory.project(
         ProjectRecord(name="Hermes")
     )
 
-    object_factory.create_event_type(
+    factory.event_type(
         EventTypeRecord(
             project=hermes,
             code="article.analyzed",
@@ -35,7 +35,7 @@ def test_event_type_probe_returns_true_when_event_type_exists(
         )
     )
 
-    assert event_type_probe.exists_by_project_and_code(
+    assert probe.event_type.exists_by_project_and_code(
         project=hermes,
         code="article.analyzed",
     )
