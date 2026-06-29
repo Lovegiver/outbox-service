@@ -4,6 +4,7 @@ delivery:
   retry_delay_seconds: 30
 
 worker:
+  enabled: false
   interval_seconds: 10
 
 security:
@@ -13,4 +14,4 @@ security:
     access_token_expire_minutes: 600
 
 database:
-  url: postgresql+psycopg://outbox_user:pericard42@localhost:5432/outbox
+  url: postgresql+psycopg://outbox_user:pericard42@localhost:5432/outbox_test

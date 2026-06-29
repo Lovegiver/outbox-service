@@ -64,6 +64,9 @@ from app.services.processing_plan_provider import (
 from app.services.metric_definition_admin_service import (
     MetricDefinitionAdminService,
 )
+from app.services.metric_builder_service import (
+    MetricBuilderService,
+)
 
 
 # Ce fichier construit les objets métier Python
@@ -339,6 +342,28 @@ class ServiceFactory:
             A configured MetricDefinitionAdminService instance.
         """
         return MetricDefinitionAdminService(db)
+
+
+    @classmethod
+    def create_metric_builder_service(
+        cls,
+        db: Session,
+    ) -> MetricBuilderService:
+        """
+        Create the business-oriented Metrics Builder service.
+
+        Args:
+            db: SQLAlchemy session used by repositories and admin services.
+
+        Returns:
+            Configured MetricBuilderService instance.
+        """
+        return MetricBuilderService(
+            schema_repository=SchemaRepository(db),
+            metric_definition_admin_service=(
+                cls.create_metric_definition_admin_service(db)
+            ),
+        )
 
     @classmethod
     def create_metric_state_aggregation_service(
