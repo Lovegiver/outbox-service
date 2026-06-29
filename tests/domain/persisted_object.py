@@ -1,5 +1,10 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal
 from typing import Optional, Protocol
+from uuid import UUID
 
 
 class PersistedObject(Protocol):
@@ -10,21 +15,6 @@ class PersistedObject(Protocol):
 class PersistedProject:
     id: int
     name: str
-
-
-@dataclass(frozen=True)
-class PersistedEventType:
-    id: int
-    project: PersistedProject
-    code: str
-    name: str
-
-
-@dataclass(frozen=True)
-class PersistedSchemaDefinition:
-    id: int
-    event_type: PersistedEventType
-    version: int
 
 
 @dataclass(frozen=True)
@@ -49,17 +39,49 @@ class PersistedApiKey:
 
 
 @dataclass(frozen=True)
+class PersistedMetricsToken:
+    id: int
+    project: PersistedProject
+    token_prefix: str
+
+
+@dataclass(frozen=True)
+class PersistedEventType:
+    id: int
+    project: PersistedProject
+    code: str
+    name: str
+
+
+@dataclass(frozen=True)
+class PersistedSchemaDefinition:
+    id: int
+    event_type: PersistedEventType
+    json_version_internal: str
+
+
+@dataclass(frozen=True)
 class PersistedRouteDefinition:
     id: int
     event_type: PersistedEventType
-    name: str
+    routing_key: str
+    destination_name: str
 
 
 @dataclass(frozen=True)
 class PersistedEvent:
     id: int
+    project: PersistedProject
     event_type: PersistedEventType
-    event_uuid: str
+    schema_definition: PersistedSchemaDefinition
+    event_uuid: UUID
+
+
+@dataclass(frozen=True)
+class PersistedEventDelivery:
+    id: int
+    event: PersistedEvent
+    destination_name: str
 
 
 @dataclass(frozen=True)
@@ -67,41 +89,65 @@ class PersistedMetricDefinition:
     id: int
     event_type: PersistedEventType
     code: str
+    name: str
 
 
 @dataclass(frozen=True)
 class PersistedMetricDefinitionVersion:
     id: int
     metric_definition: PersistedMetricDefinition
-    version: int
+    yaml_version_number: int
+
+
+@dataclass(frozen=True)
+class PersistedMetricDefinitionVersionSchema:
+    id: int
+    metric_definition_version: PersistedMetricDefinitionVersion
+    schema_definition: PersistedSchemaDefinition
 
 
 @dataclass(frozen=True)
 class PersistedProcessingChain:
     id: int
     event_type: PersistedEventType
+    schema_definition: PersistedSchemaDefinition
+    version_number: int
 
 
 @dataclass(frozen=True)
 class PersistedProcessingPlan:
     id: int
     processing_chain: PersistedProcessingChain
+    metric_definition: PersistedMetricDefinition
+    metric_definition_version: PersistedMetricDefinitionVersion
 
 
 @dataclass(frozen=True)
 class PersistedAnalyticalObservation:
     id: int
-    event: Optional[PersistedEvent]
+    event: PersistedEvent
     metric_code: str
 
 
 @dataclass(frozen=True)
 class PersistedMetricState:
     id: int
-    metric_definition: PersistedMetricDefinition
+    project: PersistedProject
+    event_type: PersistedEventType
+    metric_code: str
+    labels_hash: str
 
 
 @dataclass(frozen=True)
 class PersistedMetricCheckpoint:
     id: int
-    metric_state: PersistedMetricState
+    checkpoint_name: str
+
+
+@dataclass(frozen=True)
+class PersistedSystemMetric:
+    id: int
+    metric_code: str
+    period_start: datetime
+    period_end: datetime
+    value: Decimal

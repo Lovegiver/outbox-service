@@ -61,51 +61,19 @@ def client(
 
 
 
-from tests.probes.project_probe import ProjectProbe  # noqa: E402
-
-@pytest.fixture
-def project_probe(
-    db_connection: Connection,
-) -> ProjectProbe:
-    """
-    Provide a read-only project probe for database assertions.
-    """
-    return ProjectProbe(db_connection)
-
-
-from tests.factories.project_factory import ProjectFactory  # noqa: E402
-
-@pytest.fixture
-def project_factory(
-    db_connection: Connection,
-) -> ProjectFactory:
-    """
-    Provide a SQL project factory for test setup.
-    """
-    return ProjectFactory(db_connection)
-
-
-from tests.factories.event_type_factory import EventTypeFactory  # noqa: E402
-from tests.probes.event_type_probe import EventTypeProbe  # noqa: E402
-
-@pytest.fixture
-def event_type_factory(
-    db_connection: Connection,
-) -> EventTypeFactory:
-    return EventTypeFactory(db_connection)
-
-
-@pytest.fixture
-def event_type_probe(
-    db_connection: Connection,
-) -> EventTypeProbe:
-    return EventTypeProbe(db_connection)
-
-
 from tests.infrastructure.object_factory import ObjectFactory  # noqa: E402
+from tests.infrastructure.probe import Probe  # noqa: E402
+
 
 @pytest.fixture
-def object_factory(
+def factory(
     db_connection: Connection,
 ) -> ObjectFactory:
     return ObjectFactory(db_connection)
+
+
+@pytest.fixture
+def probe(
+    db_connection: Connection,
+) -> Probe:
+    return Probe(db_connection)
