@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -6,7 +7,7 @@ from dataclasses import dataclass
 from tests.infrastructure.context import TestContext
 
 
-UserRegistrationAssertion = Callable[[TestContext, str, bool], None]
+UserRegistrationAssertion = Callable[[TestContext, str, str], None]
 ProjectAssertion = Callable[[TestContext, str], None]
 ProjectMemberAssertion = Callable[[TestContext, str, str, str], None]
 EventTypeAssertion = Callable[[TestContext, str, str], None]
@@ -52,7 +53,6 @@ class StepRegistry:
     def response_assertion_for(self, state: str) -> ResponseAssertion:
         return self._resolve(self.response_assertions, "response", state)
 
-
     @staticmethod
     def _resolve(registry: dict, object_type: str, state: str):
         try:
@@ -84,6 +84,8 @@ def create_step_registry() -> StepRegistry:
             "has status": assert_response_status,
             "identifies user": assert_response_identifies_user,
             "contains error": assert_response_contains_error,
+            "contains access token": assert_response_contains_access_token,
+            "contains global role": assert_response_contains_global_role,
         },
     )
 
@@ -118,6 +120,41 @@ def assert_response_identifies_user(
     assert payload["email"] == email
     assert "id" in payload
     assert "role" in payload
+
+
+def assert_response_contains_error(
+    ctx: TestContext,
+    message: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    detail = payload.get("detail")
+
+    assert detail is not None
+    assert message in str(detail)
+
+
+def assert_response_contains_access_token(
+    ctx: TestContext,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+
+    assert "access_token" in payload
+    assert payload["access_token"]
+
+
+def assert_response_contains_global_role(
+    ctx: TestContext,
+    role: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+
+    assert payload["role"] == role
 
 
 def assert_project_exists(
@@ -167,16 +204,3 @@ def assert_schema_definition_exists(
         event_type=event_type,
         json_version_internal=version,
     )
-
-
-def assert_response_contains_error(
-    ctx: TestContext,
-    message: str,
-) -> None:
-    assert ctx.last_response is not None
-
-    payload = ctx.last_response.json()
-    detail = payload.get("detail")
-
-    assert detail is not None
-    assert message in str(detail)

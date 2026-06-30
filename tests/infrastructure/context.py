@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,3 +25,4 @@ class TestContext:
     seed: Seed
     assertions: TestAssertions
     last_response: Optional[Response] = None
+    request_headers: Optional[dict[str, str]] = None
