@@ -8,5 +8,6 @@ class Probe:
     pass
 
 
-def probe() -> None:
+@given('a project exists')
+def project_exists() -> None:
     return None
