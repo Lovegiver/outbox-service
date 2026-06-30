@@ -6,18 +6,32 @@ from dataclasses import dataclass
 from tests.infrastructure.context import TestContext
 
 
+UserRegistrationAssertion = Callable[[TestContext, str, bool], None]
 ProjectAssertion = Callable[[TestContext, str], None]
 ProjectMemberAssertion = Callable[[TestContext, str, str, str], None]
 EventTypeAssertion = Callable[[TestContext, str, str], None]
 SchemaDefinitionAssertion = Callable[[TestContext, str, str], None]
+ResponseAssertion = Callable[..., None]
 
 
 @dataclass(frozen=True)
 class StepRegistry:
+    user_registration_assertions: dict[str, UserRegistrationAssertion]
     project_assertions: dict[str, ProjectAssertion]
     project_member_assertions: dict[str, ProjectMemberAssertion]
     event_type_assertions: dict[str, EventTypeAssertion]
     schema_definition_assertions: dict[str, SchemaDefinitionAssertion]
+    response_assertions: dict[str, ResponseAssertion]
+
+    def user_registration_assertion_for(
+        self,
+        state: str,
+    ) -> UserRegistrationAssertion:
+        return self._resolve(
+            self.user_registration_assertions,
+            "user registration",
+            state,
+        )
 
     def project_assertion_for(self, state: str) -> ProjectAssertion:
         return self._resolve(self.project_assertions, "project", state)
@@ -35,6 +49,10 @@ class StepRegistry:
             state,
         )
 
+    def response_assertion_for(self, state: str) -> ResponseAssertion:
+        return self._resolve(self.response_assertions, "response", state)
+
+
     @staticmethod
     def _resolve(registry: dict, object_type: str, state: str):
         try:
@@ -47,6 +65,9 @@ class StepRegistry:
 
 def create_step_registry() -> StepRegistry:
     return StepRegistry(
+        user_registration_assertions={
+            "is registered": assert_user_registration_state,
+        },
         project_assertions={
             "exists": assert_project_exists,
         },
@@ -59,7 +80,44 @@ def create_step_registry() -> StepRegistry:
         schema_definition_assertions={
             "exists": assert_schema_definition_exists,
         },
+        response_assertions={
+            "has status": assert_response_status,
+            "identifies user": assert_response_identifies_user,
+            "contains error": assert_response_contains_error,
+        },
     )
+
+
+def assert_user_registration_state(
+    ctx: TestContext,
+    presence: str,
+    email: str,
+) -> None:
+    expected = presence == "a"
+    actual = ctx.probe.user_account.exists_by_email(email)
+
+    assert actual is expected
+
+
+def assert_response_status(
+    ctx: TestContext,
+    expected_status: int,
+) -> None:
+    assert ctx.last_response is not None
+    assert ctx.last_response.status_code == expected_status
+
+
+def assert_response_identifies_user(
+    ctx: TestContext,
+    email: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+
+    assert payload["email"] == email
+    assert "id" in payload
+    assert "role" in payload
 
 
 def assert_project_exists(
@@ -109,3 +167,16 @@ def assert_schema_definition_exists(
         event_type=event_type,
         json_version_internal=version,
     )
+
+
+def assert_response_contains_error(
+    ctx: TestContext,
+    message: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    detail = payload.get("detail")
+
+    assert detail is not None
+    assert message in str(detail)

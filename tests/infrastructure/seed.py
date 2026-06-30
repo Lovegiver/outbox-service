@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from app.services.password_service import PasswordService
 from tests.domain.persisted_object import (
     PersistedEvent,
     PersistedEventType,
@@ -142,4 +143,20 @@ class Seed:
             event_type=event_type,
             schema_definition=schema_definition,
             event=event,
+        )
+
+    def user_registered(
+            self,
+            email: str,
+            password: str,
+            global_role: str = "USER",
+            account_status: str = "active",
+    ):
+        return self.factory.user_account(
+            UserAccountRecord(
+                email=email,
+                password_hash=PasswordService.hash_password(password),
+                role=global_role,
+                is_active=(account_status == "active"),
+            )
         )
