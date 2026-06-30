@@ -9,6 +9,8 @@ class Probe:
     pass
 
 
-@given('a project exists')
+pattern = parsers.parse('a project exists')
+
+@given(pattern)
 def project_exists() -> None:
     return None
