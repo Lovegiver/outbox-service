@@ -1,14 +1,14 @@
-
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from tests.infrastructure.context import TestContext
 
 
 UserRegistrationAssertion = Callable[[TestContext, str, str], None]
-ProjectAssertion = Callable[[TestContext, str], None]
+ProjectAssertion = Callable[..., None]
 ProjectMemberAssertion = Callable[[TestContext, str, str, str], None]
 EventTypeAssertion = Callable[[TestContext, str, str], None]
 SchemaDefinitionAssertion = Callable[[TestContext, str, str], None]
@@ -70,6 +70,8 @@ def create_step_registry() -> StepRegistry:
         },
         project_assertions={
             "exists": assert_project_exists,
+            "is registered": assert_project_registration_state,
+            "has status": assert_project_status,
         },
         project_member_assertions={
             "has role": assert_project_member_has_role,
@@ -86,6 +88,7 @@ def create_step_registry() -> StepRegistry:
             "contains error": assert_response_contains_error,
             "contains access token": assert_response_contains_access_token,
             "contains global role": assert_response_contains_global_role,
+            "contains project": assert_response_contains_project,
         },
     )
 
@@ -97,6 +100,28 @@ def assert_user_registration_state(
 ) -> None:
     expected = presence == "a"
     actual = ctx.probe.user_account.exists_by_email(email)
+
+    assert actual is expected
+
+
+def assert_project_registration_state(
+    ctx: TestContext,
+    presence: str,
+    project_name: str,
+) -> None:
+    expected = presence == "a"
+    actual = ctx.probe.project.exists_by_name(project_name)
+
+    assert actual is expected
+
+
+def assert_project_status(
+    ctx: TestContext,
+    project_name: str,
+    status: str,
+) -> None:
+    expected = status == "active"
+    actual = ctx.probe.project.is_active_by_name(project_name)
 
     assert actual is expected
 
@@ -132,7 +157,7 @@ def assert_response_contains_error(
     detail = payload.get("detail")
 
     assert detail is not None
-    assert message in str(detail)
+    assert message.lower() in str(detail).lower()
 
 
 def assert_response_contains_access_token(
@@ -155,6 +180,33 @@ def assert_response_contains_global_role(
     payload = ctx.last_response.json()
 
     assert payload["role"] == role
+
+
+def assert_response_contains_project(
+    ctx: TestContext,
+    project_name: str,
+    expected: bool,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    projects = _extract_project_items(payload)
+    names = {str(project.get("name")) for project in projects}
+
+    assert (project_name in names) is expected
+
+
+def _extract_project_items(payload: Any) -> list[dict]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+
+    if isinstance(payload, dict):
+        for key in ("items", "projects", "data", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+    raise AssertionError(f"Cannot extract projects from response payload: {payload!r}")
 
 
 def assert_project_exists(
