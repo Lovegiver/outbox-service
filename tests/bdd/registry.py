@@ -75,6 +75,7 @@ def create_step_registry() -> StepRegistry:
         },
         project_member_assertions={
             "has role": assert_project_member_has_role,
+            "is absent": assert_project_member_is_absent,
         },
         event_type_assertions={
             "exists": assert_event_type_exists,
@@ -89,6 +90,7 @@ def create_step_registry() -> StepRegistry:
             "contains access token": assert_response_contains_access_token,
             "contains global role": assert_response_contains_global_role,
             "contains project": assert_response_contains_project,
+            "contains project member": assert_response_contains_project_member,
         },
     )
 
@@ -196,6 +198,39 @@ def assert_response_contains_project(
     assert (project_name in names) is expected
 
 
+
+def assert_response_contains_project_member(
+    ctx: TestContext,
+    email: str,
+    role: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    members = _extract_project_member_items(payload)
+
+    assert any(
+        str(member.get("email")) == email
+        and str(member.get("role")) == role
+        for member in members
+    )
+
+
+def _extract_project_member_items(payload: Any) -> list[dict]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+
+    if isinstance(payload, dict):
+        for key in ("items", "members", "data", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+    raise AssertionError(
+        f"Cannot extract project members from response payload: {payload!r}"
+    )
+
+
 def _extract_project_items(payload: Any) -> list[dict]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -229,6 +264,21 @@ def assert_project_member_has_role(
         project=project,
         user=user,
         role=role,
+    )
+
+
+
+def assert_project_member_is_absent(
+    ctx: TestContext,
+    project_name: str,
+    email: str,
+) -> None:
+    project = ctx.probe.project.get_by_name(project_name)
+    user = ctx.probe.user_account.get_by_email(email)
+
+    assert not ctx.probe.project_member.exists_by_project_and_user(
+        project=project,
+        user=user,
     )
 
 

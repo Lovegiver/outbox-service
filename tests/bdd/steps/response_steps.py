@@ -15,6 +15,9 @@ response_contains_project_pattern = parsers.parse(
 response_not_contains_project_pattern = parsers.parse(
     'the response should not contain project "{project_name}"'
 )
+response_contains_project_member_pattern = parsers.parse(
+    'the response should contain project member "{email}" with role "{role}"'
+)
 
 
 @then(response_status_pattern)
@@ -98,4 +101,18 @@ def response_should_not_contain_project(
         ctx=ctx,
         project_name=project_name,
         expected=False,
+    )
+
+
+@then(response_contains_project_member_pattern)
+def response_should_contain_project_member(
+    ctx: TestContext,
+    step_registry: StepRegistry,
+    email: str,
+    role: str,
+) -> None:
+    step_registry.response_assertion_for("contains project member")(
+        ctx=ctx,
+        email=email,
+        role=role,
     )
