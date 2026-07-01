@@ -355,6 +355,39 @@ class SchemaDefinitionProbe(BaseProbe):
             {"event_type_id": event_type.id, "version": json_version_internal},
         )
 
+    def exists_active_by_event_type_and_version(
+        self,
+        event_type: PersistedObject,
+        json_version_internal: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND json_version_internal = :version
+            AND is_active = true
+            """,
+            {"event_type_id": event_type.id, "version": json_version_internal},
+        )
+
+    def json_schema_by_event_type_and_version(
+        self,
+        event_type: PersistedObject,
+        json_version_internal: str,
+    ) -> dict:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT json_schema
+                FROM outbox.schema_definition
+                WHERE event_type_id = :event_type_id
+                AND json_version_internal = :version
+                """
+            ),
+            {"event_type_id": event_type.id, "version": json_version_internal},
+        )
+
+        return dict(result.scalar_one())
+
     def exists_active_by_event_type(self, event_type: PersistedObject) -> bool:
         return self.exists_where(
             "event_type_id = :event_type_id AND is_active = true",

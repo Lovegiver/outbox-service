@@ -13,7 +13,7 @@ ProjectMemberAssertion = Callable[[TestContext, str, str, str], None]
 ApiKeyAssertion = Callable[..., None]
 EventAssertion = Callable[..., None]
 EventTypeAssertion = Callable[[TestContext, str, str], None]
-SchemaDefinitionAssertion = Callable[[TestContext, str, str], None]
+SchemaDefinitionAssertion = Callable[..., None]
 ResponseAssertion = Callable[..., None]
 
 
@@ -102,6 +102,9 @@ def create_step_registry() -> StepRegistry:
         },
         schema_definition_assertions={
             "exists": assert_schema_definition_exists,
+            "is absent": assert_schema_definition_is_absent,
+            "is active": assert_schema_definition_is_active,
+            "matches json schema": assert_schema_definition_matches_json_schema,
         },
         response_assertions={
             "has status": assert_response_status,
@@ -113,6 +116,8 @@ def create_step_registry() -> StepRegistry:
             "contains project member": assert_response_contains_project_member,
             "contains event type": assert_response_contains_event_type,
             "identifies event type": assert_response_identifies_event_type,
+            "contains schema version": assert_response_contains_schema_version,
+            "is empty list": assert_response_is_empty_list,
             "contains api key secret": assert_response_contains_api_key_secret,
             "does not expose api key secret": assert_response_does_not_expose_api_key_secret,
             "does not expose complete api key secrets": assert_response_does_not_expose_complete_api_key_secrets,
@@ -334,6 +339,43 @@ def assert_response_identifies_event_type(
     assert "project_id" in payload
 
 
+def assert_response_contains_schema_version(
+    ctx: TestContext,
+    version: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    schemas = _extract_schema_definition_items(payload)
+
+    assert any(
+        str(schema.get("json_version_internal")) == version
+        for schema in schemas
+    )
+
+
+def assert_response_is_empty_list(ctx: TestContext) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+
+    assert isinstance(payload, list)
+    assert payload == []
+
+
+def _extract_schema_definition_items(payload: Any) -> list[dict]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+
+    if isinstance(payload, dict):
+        for key in ("items", "schemas", "data", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+    raise AssertionError(f"Cannot extract SchemaDefinitions from response payload: {payload!r}")
+
+
 def _extract_event_type_items(payload: Any) -> list[dict]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -437,6 +479,48 @@ def assert_event_type_is_absent(
         project=project,
         code=event_type_code,
     )
+
+
+def assert_schema_definition_is_absent(
+    ctx: TestContext,
+    event_type_code: str,
+    version: str,
+) -> None:
+    event_type = ctx.probe.event_type.get_by_code(event_type_code)
+
+    assert not ctx.probe.schema_definition.exists_by_event_type_and_version(
+        event_type=event_type,
+        json_version_internal=version,
+    )
+
+
+def assert_schema_definition_is_active(
+    ctx: TestContext,
+    event_type_code: str,
+    version: str,
+) -> None:
+    event_type = ctx.probe.event_type.get_by_code(event_type_code)
+
+    assert ctx.probe.schema_definition.exists_active_by_event_type_and_version(
+        event_type=event_type,
+        json_version_internal=version,
+    )
+
+
+def assert_schema_definition_matches_json_schema(
+    ctx: TestContext,
+    event_type_code: str,
+    version: str,
+    expected_json_schema: dict,
+) -> None:
+    event_type = ctx.probe.event_type.get_by_code(event_type_code)
+
+    actual = ctx.probe.schema_definition.json_schema_by_event_type_and_version(
+        event_type=event_type,
+        json_version_internal=version,
+    )
+
+    assert actual == expected_json_schema
 
 
 def assert_schema_definition_exists(
