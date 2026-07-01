@@ -187,6 +187,63 @@ class ApiKeyProbe(BaseProbe):
             {"key_prefix": key_prefix},
         )
 
+    def exists_by_project_and_name(
+        self,
+        project: PersistedObject,
+        name: str,
+    ) -> bool:
+        return self.exists_where(
+            "project_id = :project_id AND name = :name",
+            {
+                "project_id": project.id,
+                "name": name,
+            },
+        )
+
+    def exists_active_by_project_and_name(
+        self,
+        project: PersistedObject,
+        name: str,
+    ) -> bool:
+        return self.exists_where(
+            "project_id = :project_id AND name = :name AND is_active = true",
+            {
+                "project_id": project.id,
+                "name": name,
+            },
+        )
+
+    def exists_revoked_by_project_and_name(
+        self,
+        project: PersistedObject,
+        name: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            project_id = :project_id
+            AND name = :name
+            AND is_active = false
+            AND revoked_at IS NOT NULL
+            """,
+            {
+                "project_id": project.id,
+                "name": name,
+            },
+        )
+
+    def exists_active_by_project_and_id(
+        self,
+        project: PersistedObject,
+        api_key_id: int,
+    ) -> bool:
+        return self.exists_where(
+            "project_id = :project_id AND id = :api_key_id AND is_active = true",
+            {
+                "project_id": project.id,
+                "api_key_id": api_key_id,
+            },
+        )
+
 
 class MetricsTokenProbe(BaseProbe):
     def __init__(self, connection: Connection):
@@ -216,6 +273,35 @@ class EventTypeProbe(BaseProbe):
         return self.exists_where(
             "project_id = :project_id AND code = :code AND is_active = true",
             {"project_id": project.id, "code": code},
+        )
+
+    def get_by_project_and_code(
+        self,
+        project: PersistedObject,
+        code: str,
+    ) -> PersistedEventType:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id, code, name
+                FROM outbox.event_type
+                WHERE project_id = :project_id
+                AND code = :code
+                """
+            ),
+            {
+                "project_id": project.id,
+                "code": code,
+            },
+        )
+
+        row = result.mappings().one()
+
+        return PersistedEventType(
+            id=int(row["id"]),
+            project=project,
+            code=str(row["code"]),
+            name=str(row["name"]),
         )
 
     def get_by_code(
@@ -309,6 +395,25 @@ class RouteDefinitionProbe(BaseProbe):
 class EventProbe(BaseProbe):
     def __init__(self, connection: Connection):
         super().__init__(connection, "event")
+
+    def exists_by_uuid_project_and_event_type(
+        self,
+        event_uuid: str,
+        project: PersistedObject,
+        event_type: PersistedObject,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_uuid = :event_uuid
+            AND project_id = :project_id
+            AND event_type_id = :event_type_id
+            """,
+            {
+                "event_uuid": event_uuid,
+                "project_id": project.id,
+                "event_type_id": event_type.id,
+            },
+        )
 
     def exists_by_uuid(self, event_uuid: str) -> bool:
         return self.exists_where("event_uuid = :event_uuid", {"event_uuid": event_uuid})
