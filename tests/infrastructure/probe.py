@@ -77,6 +77,20 @@ class ProjectProbe(BaseProbe):
     def exists_by_name(self, name: str) -> bool:
         return self.exists_where("name = :name", {"name": name})
 
+    def is_active_by_name(self, name: str) -> bool:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT is_active
+                FROM outbox.project
+                WHERE name = :name
+                """
+            ),
+            {"name": name},
+        )
+
+        return bool(result.scalar_one())
+
     def get_by_name(
         self,
         name: str,

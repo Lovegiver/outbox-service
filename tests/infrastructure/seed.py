@@ -42,6 +42,34 @@ class Seed:
     def __init__(self, factory: ObjectFactory):
         self.factory = factory
 
+    def project_registered(
+        self,
+        name: str,
+        description: str | None = None,
+        project_status: str = "active",
+    ) -> PersistedProject:
+        return self.factory.project(
+            ProjectRecord(
+                name=name,
+                description=description,
+                is_active=(project_status == "active"),
+            )
+        )
+
+    def project_member_registered(
+        self,
+        project: PersistedProject,
+        user: PersistedUserAccount,
+        role: str,
+    ) -> PersistedProjectMember:
+        return self.factory.project_member(
+            ProjectMemberRecord(
+                project=project,
+                user=user,
+                role=role,
+            )
+        )
+
     def project_with_member(
         self,
         role: str = "OWNER",
@@ -146,11 +174,11 @@ class Seed:
         )
 
     def user_registered(
-            self,
-            email: str,
-            password: str,
-            global_role: str = "USER",
-            account_status: str = "active",
+        self,
+        email: str,
+        password: str,
+        global_role: str = "USER",
+        account_status: str = "active",
     ):
         return self.factory.user_account(
             UserAccountRecord(
