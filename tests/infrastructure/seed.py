@@ -155,6 +155,24 @@ class Seed:
 
         return event_type
 
+    def event_type_registered(
+        self,
+        project: PersistedProject,
+        code: str,
+        name: str,
+        description: str | None = None,
+        event_type_status: str = "active",
+    ) -> PersistedEventType:
+        return self.factory.event_type(
+            EventTypeRecord(
+                project=project,
+                code=code,
+                name=name,
+                description=description,
+                is_active=(event_type_status == "active"),
+            )
+        )
+
     def minimal_event_graph(
         self,
         project_name: str = "Hermes",

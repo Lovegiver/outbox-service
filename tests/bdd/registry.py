@@ -98,6 +98,7 @@ def create_step_registry() -> StepRegistry:
         },
         event_type_assertions={
             "exists": assert_event_type_exists,
+            "is absent": assert_event_type_is_absent,
         },
         schema_definition_assertions={
             "exists": assert_schema_definition_exists,
@@ -110,6 +111,8 @@ def create_step_registry() -> StepRegistry:
             "contains global role": assert_response_contains_global_role,
             "contains project": assert_response_contains_project,
             "contains project member": assert_response_contains_project_member,
+            "contains event type": assert_response_contains_event_type,
+            "identifies event type": assert_response_identifies_event_type,
             "contains api key secret": assert_response_contains_api_key_secret,
             "does not expose api key secret": assert_response_does_not_expose_api_key_secret,
             "does not expose complete api key secrets": assert_response_does_not_expose_complete_api_key_secrets,
@@ -303,6 +306,47 @@ def _extract_api_key_items(payload: Any) -> list[dict]:
     raise AssertionError(f"Cannot extract API keys from response payload: {payload!r}")
 
 
+def assert_response_contains_event_type(
+    ctx: TestContext,
+    event_type_code: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    event_types = _extract_event_type_items(payload)
+
+    assert any(
+        str(event_type.get("code")) == event_type_code
+        for event_type in event_types
+    )
+
+
+def assert_response_identifies_event_type(
+    ctx: TestContext,
+    event_type_code: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+
+    assert payload["code"] == event_type_code
+    assert "id" in payload
+    assert "project_id" in payload
+
+
+def _extract_event_type_items(payload: Any) -> list[dict]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+
+    if isinstance(payload, dict):
+        for key in ("items", "event_types", "data", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+    raise AssertionError(f"Cannot extract EventTypes from response payload: {payload!r}")
+
+
 def _extract_project_member_items(payload: Any) -> list[dict]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -377,6 +421,19 @@ def assert_event_type_exists(
     project = ctx.probe.project.get_by_name(project_name)
 
     assert ctx.probe.event_type.exists_by_project_and_code(
+        project=project,
+        code=event_type_code,
+    )
+
+
+def assert_event_type_is_absent(
+    ctx: TestContext,
+    project_name: str,
+    event_type_code: str,
+) -> None:
+    project = ctx.probe.project.get_by_name(project_name)
+
+    assert not ctx.probe.event_type.exists_by_project_and_code(
         project=project,
         code=event_type_code,
     )
