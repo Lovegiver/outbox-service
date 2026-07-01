@@ -131,6 +131,30 @@ class Seed:
             user_email=user_email,
         )
 
+    def event_type_with_schema(
+        self,
+        project: PersistedProject,
+        code: str,
+        name: str,
+        json_schema: Optional[dict] = None,
+    ) -> PersistedEventType:
+        event_type = self.factory.event_type(
+            EventTypeRecord(
+                project=project,
+                code=code,
+                name=name,
+            )
+        )
+
+        self.factory.schema_definition(
+            SchemaDefinitionRecord(
+                event_type=event_type,
+                json_schema=json_schema or {"type": "object"},
+            )
+        )
+
+        return event_type
+
     def minimal_event_graph(
         self,
         project_name: str = "Hermes",

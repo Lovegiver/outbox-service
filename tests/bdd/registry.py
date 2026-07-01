@@ -10,6 +10,8 @@ from tests.infrastructure.context import TestContext
 UserRegistrationAssertion = Callable[[TestContext, str, str], None]
 ProjectAssertion = Callable[..., None]
 ProjectMemberAssertion = Callable[[TestContext, str, str, str], None]
+ApiKeyAssertion = Callable[..., None]
+EventAssertion = Callable[..., None]
 EventTypeAssertion = Callable[[TestContext, str, str], None]
 SchemaDefinitionAssertion = Callable[[TestContext, str, str], None]
 ResponseAssertion = Callable[..., None]
@@ -20,6 +22,8 @@ class StepRegistry:
     user_registration_assertions: dict[str, UserRegistrationAssertion]
     project_assertions: dict[str, ProjectAssertion]
     project_member_assertions: dict[str, ProjectMemberAssertion]
+    api_key_assertions: dict[str, ApiKeyAssertion]
+    event_assertions: dict[str, EventAssertion]
     event_type_assertions: dict[str, EventTypeAssertion]
     schema_definition_assertions: dict[str, SchemaDefinitionAssertion]
     response_assertions: dict[str, ResponseAssertion]
@@ -39,6 +43,12 @@ class StepRegistry:
 
     def project_member_assertion_for(self, state: str) -> ProjectMemberAssertion:
         return self._resolve(self.project_member_assertions, "project member", state)
+
+    def api_key_assertion_for(self, state: str) -> ApiKeyAssertion:
+        return self._resolve(self.api_key_assertions, "api key", state)
+
+    def event_assertion_for(self, state: str) -> EventAssertion:
+        return self._resolve(self.event_assertions, "event", state)
 
     def event_type_assertion_for(self, state: str) -> EventTypeAssertion:
         return self._resolve(self.event_type_assertions, "event type", state)
@@ -77,6 +87,15 @@ def create_step_registry() -> StepRegistry:
             "has role": assert_project_member_has_role,
             "is absent": assert_project_member_is_absent,
         },
+        api_key_assertions={
+            "is active": assert_api_key_is_active,
+            "is revoked": assert_api_key_is_revoked,
+            "latest is active": assert_latest_api_key_is_active,
+            "is absent": assert_api_key_is_absent,
+        },
+        event_assertions={
+            "last ingested event exists": assert_last_ingested_event_exists,
+        },
         event_type_assertions={
             "exists": assert_event_type_exists,
         },
@@ -91,6 +110,10 @@ def create_step_registry() -> StepRegistry:
             "contains global role": assert_response_contains_global_role,
             "contains project": assert_response_contains_project,
             "contains project member": assert_response_contains_project_member,
+            "contains api key secret": assert_response_contains_api_key_secret,
+            "does not expose api key secret": assert_response_does_not_expose_api_key_secret,
+            "does not expose complete api key secrets": assert_response_does_not_expose_complete_api_key_secrets,
+            "contains api key": assert_response_contains_api_key,
         },
     )
 
@@ -216,6 +239,70 @@ def assert_response_contains_project_member(
     )
 
 
+
+def assert_response_contains_api_key_secret(ctx: TestContext) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+
+    assert "api_key" in payload
+    assert str(payload["api_key"]).startswith("obx_ingest_")
+
+
+def assert_response_does_not_expose_api_key_secret(
+    ctx: TestContext,
+    api_key_name: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    state = getattr(ctx, "api_key_state", {})
+    secret = state.get("secrets_by_name", {}).get(api_key_name)
+
+    assert secret is not None
+    assert secret not in str(ctx.last_response.json())
+
+
+def assert_response_does_not_expose_complete_api_key_secrets(
+    ctx: TestContext,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    api_keys = _extract_api_key_items(payload)
+
+    for api_key in api_keys:
+        assert "api_key" not in api_key
+        assert "key_hash" not in api_key
+
+
+def assert_response_contains_api_key(
+    ctx: TestContext,
+    api_key_name: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    api_keys = _extract_api_key_items(payload)
+
+    assert any(
+        str(api_key.get("name")) == api_key_name
+        for api_key in api_keys
+    )
+
+
+def _extract_api_key_items(payload: Any) -> list[dict]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+
+    if isinstance(payload, dict):
+        for key in ("items", "api_keys", "data", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+    raise AssertionError(f"Cannot extract API keys from response payload: {payload!r}")
+
+
 def _extract_project_member_items(payload: Any) -> list[dict]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -305,4 +392,80 @@ def assert_schema_definition_exists(
     assert ctx.probe.schema_definition.exists_by_event_type_and_version(
         event_type=event_type,
         json_version_internal=version,
+    )
+
+
+
+def assert_api_key_is_active(
+    ctx: TestContext,
+    project_name: str,
+    api_key_name: str,
+) -> None:
+    project = ctx.probe.project.get_by_name(project_name)
+
+    assert ctx.probe.api_key.exists_active_by_project_and_name(
+        project=project,
+        name=api_key_name,
+    )
+
+
+def assert_api_key_is_revoked(
+    ctx: TestContext,
+    project_name: str,
+    api_key_name: str,
+) -> None:
+    project = ctx.probe.project.get_by_name(project_name)
+
+    assert ctx.probe.api_key.exists_revoked_by_project_and_name(
+        project=project,
+        name=api_key_name,
+    )
+
+
+def assert_latest_api_key_is_active(
+    ctx: TestContext,
+    project_name: str,
+) -> None:
+    project = ctx.probe.project.get_by_name(project_name)
+    state = getattr(ctx, "api_key_state", {})
+    latest_id = state.get("latest_id")
+
+    assert latest_id is not None
+    assert ctx.probe.api_key.exists_active_by_project_and_id(
+        project=project,
+        api_key_id=latest_id,
+    )
+
+
+def assert_api_key_is_absent(
+    ctx: TestContext,
+    project_name: str,
+    api_key_name: str,
+) -> None:
+    project = ctx.probe.project.get_by_name(project_name)
+
+    assert not ctx.probe.api_key.exists_by_project_and_name(
+        project=project,
+        name=api_key_name,
+    )
+
+
+def assert_last_ingested_event_exists(
+    ctx: TestContext,
+    project_name: str,
+    event_type_code: str,
+) -> None:
+    project = ctx.probe.project.get_by_name(project_name)
+    event_type = ctx.probe.event_type.get_by_project_and_code(
+        project=project,
+        code=event_type_code,
+    )
+    state = getattr(ctx, "api_key_state", {})
+    event_uuid = state.get("last_ingested_event_uuid")
+
+    assert event_uuid is not None
+    assert ctx.probe.event.exists_by_uuid_project_and_event_type(
+        event_uuid=event_uuid,
+        project=project,
+        event_type=event_type,
     )
