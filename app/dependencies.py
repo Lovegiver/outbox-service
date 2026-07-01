@@ -171,9 +171,13 @@ def require_event_type_permission(
         event_type_service: EventTypeService = Depends(get_event_type_service),
     ) -> UserAccount:
 
-        event_type = event_type_service.get_event_type(
-            event_type_id
-        )
+        try:
+            event_type = event_type_service.get_event_type(event_type_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
 
         if current_user.role == UserRole.ADMIN:
             return current_user
