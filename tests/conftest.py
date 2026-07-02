@@ -113,6 +113,7 @@ from tests.infrastructure.context import TestContext  # noqa: E402
 @pytest.fixture
 def ctx(
     client: TestClient,
+    db_session: Session,
     factory: ObjectFactory,
     probe: Probe,
     auth: AuthTestHelper,
@@ -121,6 +122,7 @@ def ctx(
 ) -> TestContext:
     return TestContext(
         client=client,
+        db_session=db_session,
         factory=factory,
         probe=probe,
         auth=auth,

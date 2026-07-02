@@ -388,6 +388,78 @@ class SchemaDefinitionProbe(BaseProbe):
 
         return dict(result.scalar_one())
 
+
+    def get_id_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id
+                FROM outbox.route_definition
+                WHERE event_type_id = :event_type_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+        return int(result.scalar_one())
+
+    def exists_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> bool:
+        return self.exists_where(
+            "event_type_id = :event_type_id AND destination_name = :destination_name",
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+    def exists_active_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND destination_name = :destination_name
+            AND is_active = true
+            """,
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+    def exists_by_event_type_destination_and_url(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+        destination_url: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND destination_name = :destination_name
+            AND destination_url = :destination_url
+            """,
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+                "destination_url": destination_url,
+            },
+        )
+
     def exists_active_by_event_type(self, event_type: PersistedObject) -> bool:
         return self.exists_where(
             "event_type_id = :event_type_id AND is_active = true",
@@ -424,6 +496,77 @@ class RouteDefinitionProbe(BaseProbe):
             {"event_type_id": event_type.id},
         )
 
+    def get_id_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id
+                FROM outbox.route_definition
+                WHERE event_type_id = :event_type_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+        return int(result.scalar_one())
+
+    def exists_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> bool:
+        return self.exists_where(
+            "event_type_id = :event_type_id AND destination_name = :destination_name",
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+    def exists_active_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND destination_name = :destination_name
+            AND is_active = true
+            """,
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+    def exists_by_event_type_destination_and_url(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+        destination_url: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND destination_name = :destination_name
+            AND destination_url = :destination_url
+            """,
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+                "destination_url": destination_url,
+            },
+        )
+
 
 class EventProbe(BaseProbe):
     def __init__(self, connection: Connection):
@@ -451,6 +594,26 @@ class EventProbe(BaseProbe):
     def exists_by_uuid(self, event_uuid: str) -> bool:
         return self.exists_where("event_uuid = :event_uuid", {"event_uuid": event_uuid})
 
+
+    def exists_by_event_destination_and_url(
+        self,
+        event: PersistedObject,
+        destination_name: str,
+        destination_url: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_id = :event_id
+            AND destination_name = :destination_name
+            AND destination_url = :destination_url
+            """,
+            {
+                "event_id": event.id,
+                "destination_name": destination_name,
+                "destination_url": destination_url,
+            },
+        )
+
     def exists_by_status(self, status: str) -> bool:
         return self.exists_where("status = :status", {"status": status})
 
@@ -469,6 +632,25 @@ class EventDeliveryProbe(BaseProbe):
         return self.exists_where(
             "event_id = :event_id AND destination_name = :destination_name",
             {"event_id": event.id, "destination_name": destination_name},
+        )
+
+    def exists_by_event_destination_and_url(
+        self,
+        event: PersistedObject,
+        destination_name: str,
+        destination_url: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_id = :event_id
+            AND destination_name = :destination_name
+            AND destination_url = :destination_url
+            """,
+            {
+                "event_id": event.id,
+                "destination_name": destination_name,
+                "destination_url": destination_url,
+            },
         )
 
     def exists_by_status(self, status: str) -> bool:

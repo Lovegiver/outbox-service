@@ -14,6 +14,8 @@ ApiKeyAssertion = Callable[..., None]
 EventAssertion = Callable[..., None]
 EventTypeAssertion = Callable[[TestContext, str, str], None]
 SchemaDefinitionAssertion = Callable[..., None]
+RouteDefinitionAssertion = Callable[..., None]
+EventDeliveryAssertion = Callable[..., None]
 ResponseAssertion = Callable[..., None]
 
 
@@ -26,6 +28,8 @@ class StepRegistry:
     event_assertions: dict[str, EventAssertion]
     event_type_assertions: dict[str, EventTypeAssertion]
     schema_definition_assertions: dict[str, SchemaDefinitionAssertion]
+    route_definition_assertions: dict[str, RouteDefinitionAssertion]
+    event_delivery_assertions: dict[str, EventDeliveryAssertion]
     response_assertions: dict[str, ResponseAssertion]
 
     def user_registration_assertion_for(
@@ -57,6 +61,20 @@ class StepRegistry:
         return self._resolve(
             self.schema_definition_assertions,
             "schema definition",
+            state,
+        )
+
+    def route_definition_assertion_for(self, state: str) -> RouteDefinitionAssertion:
+        return self._resolve(
+            self.route_definition_assertions,
+            "route definition",
+            state,
+        )
+
+    def event_delivery_assertion_for(self, state: str) -> EventDeliveryAssertion:
+        return self._resolve(
+            self.event_delivery_assertions,
+            "event delivery",
             state,
         )
 
@@ -106,6 +124,15 @@ def create_step_registry() -> StepRegistry:
             "is active": assert_schema_definition_is_active,
             "matches json schema": assert_schema_definition_matches_json_schema,
         },
+        route_definition_assertions={
+            "is active": assert_route_definition_is_active,
+            "targets url": assert_route_definition_targets_url,
+            "is absent": assert_route_definition_is_absent,
+        },
+        event_delivery_assertions={
+            "exists for event and destination": assert_event_delivery_exists_for_event_and_destination,
+            "exists for event destination and url": assert_event_delivery_exists_for_event_destination_and_url,
+        },
         response_assertions={
             "has status": assert_response_status,
             "identifies user": assert_response_identifies_user,
@@ -118,6 +145,7 @@ def create_step_registry() -> StepRegistry:
             "identifies event type": assert_response_identifies_event_type,
             "contains schema version": assert_response_contains_schema_version,
             "is empty list": assert_response_is_empty_list,
+            "contains route": assert_response_contains_route,
             "contains api key secret": assert_response_contains_api_key_secret,
             "does not expose api key secret": assert_response_does_not_expose_api_key_secret,
             "does not expose complete api key secrets": assert_response_does_not_expose_complete_api_key_secrets,
@@ -363,6 +391,34 @@ def assert_response_is_empty_list(ctx: TestContext) -> None:
     assert payload == []
 
 
+def assert_response_contains_route(
+    ctx: TestContext,
+    destination_name: str,
+) -> None:
+    assert ctx.last_response is not None
+
+    payload = ctx.last_response.json()
+    routes = _extract_route_definition_items(payload)
+
+    assert any(
+        str(route.get("destination_name")) == destination_name
+        for route in routes
+    )
+
+
+def _extract_route_definition_items(payload: Any) -> list[dict]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+
+    if isinstance(payload, dict):
+        for key in ("items", "routes", "data", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+    raise AssertionError(f"Cannot extract RouteDefinitions from response payload: {payload!r}")
+
+
 def _extract_schema_definition_items(payload: Any) -> list[dict]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -465,6 +521,86 @@ def assert_event_type_exists(
     assert ctx.probe.event_type.exists_by_project_and_code(
         project=project,
         code=event_type_code,
+    )
+
+
+def _event_type_for(
+    ctx: TestContext,
+    project_name: str,
+    event_type_code: str,
+):
+    project = ctx.probe.project.get_by_name(project_name)
+    return ctx.probe.event_type.get_by_project_and_code(
+        project=project,
+        code=event_type_code,
+    )
+
+
+def assert_route_definition_is_active(
+    ctx: TestContext,
+    project_name: str,
+    event_type_code: str,
+    destination_name: str,
+) -> None:
+    event_type = _event_type_for(ctx, project_name, event_type_code)
+
+    assert ctx.probe.route_definition.exists_active_by_event_type_and_destination(
+        event_type=event_type,
+        destination_name=destination_name,
+    )
+
+
+def assert_route_definition_targets_url(
+    ctx: TestContext,
+    project_name: str,
+    event_type_code: str,
+    destination_name: str,
+    destination_url: str,
+) -> None:
+    event_type = _event_type_for(ctx, project_name, event_type_code)
+
+    assert ctx.probe.route_definition.exists_by_event_type_destination_and_url(
+        event_type=event_type,
+        destination_name=destination_name,
+        destination_url=destination_url,
+    )
+
+
+def assert_route_definition_is_absent(
+    ctx: TestContext,
+    project_name: str,
+    event_type_code: str,
+    destination_name: str,
+) -> None:
+    event_type = _event_type_for(ctx, project_name, event_type_code)
+
+    assert not ctx.probe.route_definition.exists_by_event_type_and_destination(
+        event_type=event_type,
+        destination_name=destination_name,
+    )
+
+
+def assert_event_delivery_exists_for_event_and_destination(
+    ctx: TestContext,
+    event,
+    destination_name: str,
+) -> None:
+    assert ctx.probe.event_delivery.exists_by_event_and_destination(
+        event=event,
+        destination_name=destination_name,
+    )
+
+
+def assert_event_delivery_exists_for_event_destination_and_url(
+    ctx: TestContext,
+    event,
+    destination_name: str,
+    destination_url: str,
+) -> None:
+    assert ctx.probe.event_delivery.exists_by_event_destination_and_url(
+        event=event,
+        destination_name=destination_name,
+        destination_url=destination_url,
     )
 
 

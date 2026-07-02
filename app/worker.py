@@ -1,6 +1,7 @@
 import asyncio
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy.orm import Session
 
 from app.container.service_factory import ServiceFactory
 from app.core.delivery_status import DeliveryStatus
@@ -12,7 +13,6 @@ from app.runtime.runtime_event import RuntimeEvent
 from app.runtime.runtime_event_bus import runtime_event_bus
 from app.runtime.runtime_event_type import RuntimeEventType
 from app.services.config_service import ConfigService
-
 
 """
 Background worker responsible for executing the secondary Outbox pipeline.
@@ -43,26 +43,33 @@ scheduler = BackgroundScheduler()
 config_service = ConfigService()
 
 
-def route_received_events() -> None:
+def route_received_events(db: Session | None = None) -> None:
     """
-    Process all events currently marked as RECEIVED.
+    Route all events currently marked as RECEIVED.
 
-    For each received event, the worker executes the secondary processing pipeline:
+    This function is a runtime processing unit, not the scheduler itself.
+
+    When called by the production worker, no Session is provided: the function
+    opens its own transaction boundary, commits on success, rolls back on
+    failure, and closes the Session.
+
+    When called by integration or BDD tests, the caller may provide an existing
+    Session. In that case, the function participates in the caller-owned
+    transaction and never commits, rolls back, or closes the Session itself.
+
+    For each received event, the function executes the secondary processing
+    pipeline:
 
     1. metrics extraction and observation persistence;
     2. route resolution based on EventType;
-    3. delivery creation;
-    4. event status transition to ROUTED.
-
-    All operations executed for a given event are committed together
-    within the processing transaction boundary.
-
-    The ingestion transaction is intentionally separated from this
-    processing phase in order to keep event reception fast, durable,
-    and resilient.
+    3. EventDelivery creation;
+    4. Event status transition to ROUTED or UNROUTABLE.
     """
 
-    db = SessionLocal()
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
 
     try:
         event_ingress_service = ServiceFactory.create_event_ingress_service(db)
@@ -91,6 +98,7 @@ def route_received_events() -> None:
                     },
                 )
             )
+
             routes = route_service.route_repository.find_by_event_type(
                 event.event_type_id
             )
@@ -124,6 +132,7 @@ def route_received_events() -> None:
                         },
                     )
                 )
+
             else:
                 event.status = EventStatus.UNROUTABLE
                 event_ingress_service.event_repository.save(event)
@@ -143,16 +152,20 @@ def route_received_events() -> None:
                     )
                 )
 
-                continue
+        if owns_session:
+            db.commit()
 
-        db.commit()
+    except Exception:
+        if owns_session:
+            db.rollback()
+            logger.exception("[OB1-worker] routing error")
+            return
 
-    except Exception as exc:
-        db.rollback()
-        logger.info(f"[OB1-worker] routing error={exc}")
+        raise
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 
 
 def deliver_one_delivery(delivery_id: int) -> None:

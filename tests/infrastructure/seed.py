@@ -17,6 +17,7 @@ from tests.domain.record import (
     EventTypeRecord,
     ProjectMemberRecord,
     ProjectRecord,
+    RouteDefinitionRecord,
     SchemaDefinitionRecord,
     UserAccountRecord,
 )
@@ -170,6 +171,49 @@ class Seed:
                 name=name,
                 description=description,
                 is_active=(event_type_status == "active"),
+            )
+        )
+
+    def route_registered(
+        self,
+        event_type: PersistedEventType,
+        routing_key: str,
+        destination_name: str,
+        destination_url: str,
+    ):
+        return self.factory.route_definition(
+            RouteDefinitionRecord(
+                event_type=event_type,
+                routing_key=routing_key,
+                destination_name=destination_name,
+                destination_url=destination_url,
+            )
+        )
+
+    def received_event_registered(
+        self,
+        event_type: PersistedEventType,
+        payload: dict | None = None,
+    ) -> PersistedEvent:
+        schema_definition = self.factory.schema_definition(
+            SchemaDefinitionRecord(
+                event_type=event_type,
+                json_schema={
+                    "type": "object",
+                    "properties": {
+                        "duration_seconds": {"type": "number"},
+                    },
+                    "required": ["duration_seconds"],
+                },
+            )
+        )
+
+        return self.factory.event(
+            EventRecord(
+                event_type=event_type,
+                schema_definition=schema_definition,
+                payload=payload or {"duration_seconds": 12.3},
+                status="RECEIVED",
             )
         )
 
