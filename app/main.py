@@ -3,6 +3,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from jsonschema.exceptions import ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.api.admin.api_key_router import (
@@ -131,6 +132,12 @@ def receive_event(
         raise HTTPException(
             status_code=500,
             detail="Failed to persist event",
+        ) from exc
+
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=exc.message,
         ) from exc
 
     except ValueError as exc:
