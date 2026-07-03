@@ -207,6 +207,8 @@ class ObjectFactory:
                 "status": record.status,
                 "attempt_count": record.attempt_count,
                 "last_error": record.last_error,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
             },
         )
         return PersistedEventDelivery(
