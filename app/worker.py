@@ -168,8 +168,21 @@ def route_received_events(db: Session | None = None) -> None:
             db.close()
 
 
-def deliver_one_delivery(delivery_id: int) -> None:
-    db = SessionLocal()
+def deliver_one_delivery(delivery_id: int, db: Session | None = None) -> None:
+    """
+    Execute a single EventDelivery.
+
+    When called by production runtime code, no Session is provided and this
+    function owns its transaction boundary.
+
+    When called by BDD or integration tests, an existing Session can be
+    provided so the delivery execution participates in the test transaction.
+    """
+
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
 
     try:
         event_ingress_service = ServiceFactory.create_event_ingress_service(db)
@@ -217,7 +230,9 @@ def deliver_one_delivery(delivery_id: int) -> None:
         )
 
         delivery_repository.save(delivery)
-        db.commit()
+
+        if owns_session:
+            db.commit()
 
         publish_runtime_event(
             RuntimeEvent(
@@ -233,10 +248,13 @@ def deliver_one_delivery(delivery_id: int) -> None:
         )
 
     except Exception as exc:
-        db.rollback()
+        if owns_session:
+            db.rollback()
+
         persist_delivery_failure(
             delivery_id=delivery_id,
             error=exc,
+            db=db if not owns_session else None,
         )
 
         logger.info(
@@ -246,13 +264,25 @@ def deliver_one_delivery(delivery_id: int) -> None:
         )
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 
 def persist_delivery_failure(
         delivery_id: int,
         error: Exception,
+        db: Session | None = None,
 ) -> None:
-    db = SessionLocal()
+    """
+    Persist the failed result of a delivery attempt.
+
+    The function can either own its Session in production failure handling or
+    participate in a caller-owned transaction during BDD/integration tests.
+    """
+
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
 
     try:
         delivery_repository = (
@@ -310,7 +340,8 @@ def persist_delivery_failure(
         db.commit()
 
     except Exception as save_exc:
-        db.rollback()
+        if owns_session:
+            db.rollback()
 
         logger.info(
             f"[OB1-worker] failed to persist "
@@ -320,11 +351,23 @@ def persist_delivery_failure(
         )
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 
 
-def deliver_pending_deliveries() -> None:
-    db = SessionLocal()
+def deliver_pending_deliveries(db: Session | None = None) -> None:
+    """
+    Execute all pending or retryable deliveries.
+
+    The production worker lets this function open its own short transaction for
+    selecting eligible deliveries. Tests may provide a Session so seeded
+    deliveries remain visible inside the same transaction.
+    """
+
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
 
     try:
         delivery_repository = ServiceFactory.create_event_delivery_repository(db)
@@ -340,10 +383,14 @@ def deliver_pending_deliveries() -> None:
         ]
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 
     for delivery_id in delivery_ids:
-        deliver_one_delivery(delivery_id)
+        deliver_one_delivery(
+            delivery_id=delivery_id,
+            db=db if not owns_session else None,
+        )
 
 
 def aggregate_prometheus_metric_state() -> None:

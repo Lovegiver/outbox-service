@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Optional, Any, Optional
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -716,7 +716,7 @@ class EventDeliveryProbe(BaseProbe):
         )
         return str(result.scalar_one())
 
-    def destination_url_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str | None:
+    def destination_url_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> Optional[str]:
         result = self.connection.execute(
             text(
                 """
@@ -745,7 +745,7 @@ class EventDeliveryProbe(BaseProbe):
         )
         return int(result.scalar_one())
 
-    def last_error_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str | None:
+    def last_error_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> Optional[str]:
         result = self.connection.execute(
             text(
                 """
@@ -802,6 +802,30 @@ class EventDeliveryProbe(BaseProbe):
 
     def exists_by_status(self, status: str) -> bool:
         return self.exists_where("status = :status", {"status": status})
+
+    def status_by_id(self, delivery_id: int) -> str:
+        return str(
+            self.connection.execute(
+                text("SELECT status FROM outbox.event_delivery WHERE id = :id"),
+                {"id": delivery_id},
+            ).scalar_one()
+        )
+
+    def attempt_count_by_id(self, delivery_id: int) -> int:
+        return int(
+            self.connection.execute(
+                text("SELECT attempt_count FROM outbox.event_delivery WHERE id = :id"),
+                {"id": delivery_id},
+            ).scalar_one()
+        )
+
+    def last_error_by_id(self, delivery_id: int) -> Optional[str]:
+        value = self.connection.execute(
+            text("SELECT last_error FROM outbox.event_delivery WHERE id = :id"),
+            {"id": delivery_id},
+        ).scalar_one()
+
+        return str(value) if value is not None else None
 
 
 class MetricDefinitionProbe(BaseProbe):
