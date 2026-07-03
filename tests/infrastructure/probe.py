@@ -591,6 +591,47 @@ class EventProbe(BaseProbe):
             },
         )
 
+    def exists_by_project_and_event_type(
+        self,
+        project: PersistedObject,
+        event_type: PersistedObject,
+    ) -> bool:
+        return self.exists_where(
+            "project_id = :project_id AND event_type_id = :event_type_id",
+            {
+                "project_id": project.id,
+                "event_type_id": event_type.id,
+            },
+        )
+
+    def status_by_id(self, event_id: int) -> str:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT status
+                FROM outbox.event
+                WHERE id = :event_id
+                """
+            ),
+            {"event_id": event_id},
+        )
+
+        return str(result.scalar_one())
+
+    def schema_version_by_id(self, event_id: int) -> str:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT json_version_internal
+                FROM outbox.event
+                WHERE id = :event_id
+                """
+            ),
+            {"event_id": event_id},
+        )
+
+        return str(result.scalar_one())
+
     def exists_by_uuid(self, event_uuid: str) -> bool:
         return self.exists_where("event_uuid = :event_uuid", {"event_uuid": event_uuid})
 
@@ -627,6 +668,12 @@ class EventProbe(BaseProbe):
 class EventDeliveryProbe(BaseProbe):
     def __init__(self, connection: Connection):
         super().__init__(connection, "event_delivery")
+
+    def exists_by_event_id(self, event_id: int) -> bool:
+        return self.exists_where(
+            "event_id = :event_id",
+            {"event_id": event_id},
+        )
 
     def exists_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> bool:
         return self.exists_where(
