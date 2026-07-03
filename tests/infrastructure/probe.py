@@ -675,6 +675,106 @@ class EventDeliveryProbe(BaseProbe):
             {"event_id": event_id},
         )
 
+    def count_by_event_id(self, event_id: int) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                """
+            ),
+            {"event_id": event_id},
+        )
+        return int(result.scalar_one())
+
+    def status_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT status
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        return str(result.scalar_one())
+
+    def destination_type_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT destination_type
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        return str(result.scalar_one())
+
+    def destination_url_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str | None:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT destination_url
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        value = result.scalar_one()
+        return str(value) if value is not None else None
+
+    def attempt_count_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT attempt_count
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        return int(result.scalar_one())
+
+    def last_error_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str | None:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT last_error
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        value = result.scalar_one()
+        return str(value) if value is not None else None
+
+    def event_id_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT event_id
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        return int(result.scalar_one())
+
+
     def exists_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> bool:
         return self.exists_where(
             "event_id = :event_id AND destination_name = :destination_name",
