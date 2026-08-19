@@ -63,3 +63,22 @@ Feature: Runtime metrics dashboard
     When the runtime metrics summary is requested
     Then the oldest received Event age should be at least 120 seconds
     And the oldest pending Delivery age should be at least 90 seconds
+
+  Scenario: Keep the summary coherent after retrying a dead letter
+    Given a retryable dead letter with 4 attempts exists for runtime metrics
+    When the runtime metrics summary is requested
+    Then the runtime summary should contain:
+      | field              | value |
+      | deliveries_created | 1     |
+      | deliveries_pending | 0     |
+      | dead_letters       | 1     |
+      | retry_count        | 3     |
+    When the runtime dead letter is retried
+    Then the response should have status 200
+    When the runtime metrics summary is requested
+    Then the runtime summary should contain:
+      | field              | value |
+      | deliveries_created | 1     |
+      | deliveries_pending | 1     |
+      | dead_letters       | 0     |
+      | retry_count        | 0     |

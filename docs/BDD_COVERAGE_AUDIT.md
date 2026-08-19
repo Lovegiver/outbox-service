@@ -337,11 +337,10 @@ Couvert :
 - compteur de retries ;
 - age du plus ancien Event `RECEIVED` ;
 - age de la plus ancienne delivery `PENDING` ;
-- PostgreSQL comme source de verite, independamment des evenements WebSocket live.
-
-Scenario pertinent manquant :
-
+- PostgreSQL comme source de verite, independamment des evenements WebSocket live ;
 - coherence des compteurs apres retry d'une dead letter.
+
+Aucun manque critique immediat n'a ete identifie.
 
 ### YAML Metrics Observatory
 

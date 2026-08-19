@@ -85,9 +85,38 @@ def pending_delivery_created_ago(ctx: TestContext, age: int) -> None:
     )
 
 
+@given("a retryable dead letter with 4 attempts exists for runtime metrics")
+def retryable_dead_letter_exists(ctx: TestContext) -> None:
+    project, _, _ = _runtime_graph(ctx)
+    user = ctx.seed.user_registered(
+        email="runtime-owner@example.com",
+        password="ValidPassword123!",
+    )
+    ctx.seed.project_member_registered(project=project, user=user, role="OWNER")
+    delivery = ctx.factory.event_delivery(
+        EventDeliveryRecord(
+            event=_create_event(ctx, "ROUTED"),
+            status="DEAD_LETTER",
+            attempt_count=4,
+            last_error="downstream unavailable",
+        )
+    )
+    setattr(ctx, "runtime_dead_letter", (project.id, delivery.id))
+    ctx.request_headers = ctx.auth.as_user(user)
+
+
 @when("the runtime metrics summary is requested")
 def runtime_metrics_summary_is_requested(ctx: TestContext) -> None:
     ctx.last_response = ctx.client.get("/api/runtime/metrics/summary")
+
+
+@when("the runtime dead letter is retried")
+def runtime_dead_letter_is_retried(ctx: TestContext) -> None:
+    project_id, delivery_id = getattr(ctx, "runtime_dead_letter")
+    ctx.last_response = ctx.client.post(
+        f"/api/admin/projects/{project_id}/dead-letters/{delivery_id}/retry",
+        headers=ctx.request_headers or {},
+    )
 
 
 @then("the runtime summary should contain:")
