@@ -60,6 +60,8 @@ Couvert :
 - login valide ;
 - rejet de mot de passe invalide ;
 - rejet d'utilisateur inconnu ;
+- rejet du login pour utilisateur inactif ;
+- rejet d'un format email invalide a l'inscription ;
 - endpoint d'identite authentifie ;
 - rejet d'identite sans token ;
 - rejet d'identite avec token invalide ;
@@ -68,8 +70,6 @@ Couvert :
 
 Scenarios pertinents manquants :
 
-- rejet du login pour utilisateur inactif ;
-- format email invalide ;
 - limites de politique de mot de passe une fois la politique produit definie ;
 - verification email une fois la fonctionnalite implementee.
 

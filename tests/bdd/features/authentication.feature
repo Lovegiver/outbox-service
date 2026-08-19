@@ -18,6 +18,11 @@ Feature: Authentication
     Then the response should have status 400
     And the response error should contain "already exists"
 
+  Scenario: Reject registration with an invalid email format
+    When a user registers with email "not-an-email" and password "ValidPassword123!"
+    Then the response should have status 422
+    And no user should be registered with email "not-an-email"
+
   Scenario: Login with valid credentials
     Given the following users are registered:
       | email             | password          | global role | account status |
@@ -37,6 +42,14 @@ Feature: Authentication
   Scenario: Reject login for an unknown user
     Given no user is registered with email "unknown@example.com"
     When the user logs in with email "unknown@example.com" and password "ValidPassword123!"
+    Then the response should have status 401
+    And the response error should contain "Invalid credentials"
+
+  Scenario: Reject login for an inactive user
+    Given the following users are registered:
+      | email             | password          | global role | account status |
+      | alice@example.com | ValidPassword123! | USER        | inactive       |
+    When the user logs in with email "alice@example.com" and password "ValidPassword123!"
     Then the response should have status 401
     And the response error should contain "Invalid credentials"
 

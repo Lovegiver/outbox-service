@@ -56,7 +56,7 @@ class AuthService:
             email
         )
 
-        if user is None:
+        if user is None or not user.is_active:
             return None
 
         if not PasswordService.verify_password(
