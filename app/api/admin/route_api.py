@@ -35,6 +35,9 @@ def create_route(
         routing_key=request.routing_key,
         destination_name=request.destination_name,
         destination_url=request.destination_url,
+        auth_type=request.auth_type,
+        auth_config=request.auth_config,
+        secret_ref=request.secret_ref,
     )
 
 
@@ -77,6 +80,9 @@ def update_route(
             routing_key=request.routing_key,
             destination_name=request.destination_name,
             destination_url=request.destination_url,
+            auth_type=request.auth_type,
+            auth_config=request.auth_config,
+            secret_ref=request.secret_ref,
         )
     except ValueError as exc:
         from fastapi import HTTPException, status

@@ -1,7 +1,13 @@
 delivery:
   max_attempts: 3
   timeout_seconds: 5
-  retry_delay_seconds: 30
+  retry:
+    strategy: exponential
+    initial_delay_seconds: 5
+    max_delay_seconds: 600
+    jitter: false
+  http:
+    require_https: false
 
 worker:
   enabled: false
@@ -9,9 +15,11 @@ worker:
 
 security:
   jwt:
-    secret_key: "replace-with-long-random-secret"
+    secret_key: "replace-with-long-random-secret-at-least-32-bytes"
     algorithm: "HS256"
     access_token_expire_minutes: 600
+  destination_secrets:
+    provider: environment
 
 database:
   url: postgresql+psycopg://outbox_user:pericard42@localhost:5432/outbox_test

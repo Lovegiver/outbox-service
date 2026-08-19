@@ -1,4 +1,6 @@
 import asyncio
+import random
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
@@ -41,6 +43,26 @@ pipeline, independently from the ingress mechanism used to persist events
 
 scheduler = BackgroundScheduler()
 config_service = ConfigService()
+
+
+def retry_delay_seconds(attempt_count: int) -> float:
+    """Compute the configured delay before the next delivery attempt."""
+    strategy = config_service.get_retry_strategy()
+
+    if strategy != "exponential":
+        raise ValueError(f"Unsupported retry strategy: {strategy}")
+
+    initial_delay = config_service.get_retry_delay_seconds()
+    max_delay = config_service.get_retry_max_delay_seconds()
+    delay = min(
+        initial_delay * (2 ** max(attempt_count - 1, 0)),
+        max_delay,
+    )
+
+    if config_service.is_retry_jitter_enabled():
+        return random.uniform(0, delay)
+
+    return float(delay)
 
 
 def route_received_events(db: Session | None = None) -> None:
@@ -109,6 +131,9 @@ def route_received_events(db: Session | None = None) -> None:
                     destination_name=route.destination_name,
                     destination_type="webhook",
                     destination_url=route.destination_url,
+                    auth_type=route.auth_type,
+                    auth_config=route.auth_config,
+                    secret_ref=route.secret_ref,
                     status=DeliveryStatus.PENDING,
                 )
 
@@ -205,8 +230,9 @@ def deliver_one_delivery(delivery_id: int, db: Session | None = None) -> None:
         )
 
         if event is None:
-            delivery.status = DeliveryStatus.FAILED
-            delivery.last_error = f"Event not found: {delivery.event_id}"
+            delivery.status = DeliveryStatus.DEAD_LETTER
+            delivery.last_error = f"EVENT_NOT_FOUND: {delivery.event_id}"
+            delivery.next_attempt_at = None
             delivery_repository.save(delivery)
             db.commit()
             return
@@ -301,6 +327,7 @@ def persist_delivery_failure(
 
         if delivery.attempt_count >= max_attempts:
             delivery.status = DeliveryStatus.DEAD_LETTER
+            delivery.next_attempt_at = None
 
             publish_runtime_event(
                 RuntimeEvent(
@@ -320,6 +347,10 @@ def persist_delivery_failure(
             )
         else:
             delivery.status = DeliveryStatus.FAILED
+            delay_seconds = retry_delay_seconds(delivery.attempt_count)
+            delivery.next_attempt_at = (
+                datetime.now(UTC) + timedelta(seconds=delay_seconds)
+            )
 
             publish_runtime_event(
                 RuntimeEvent(
@@ -332,6 +363,7 @@ def persist_delivery_failure(
                         "last_error": delivery.last_error,
                         "destination_name": delivery.destination_name,
                         "destination_url": delivery.destination_url,
+                        "next_attempt_at": delivery.next_attempt_at.isoformat(),
                     },
                 )
             )
