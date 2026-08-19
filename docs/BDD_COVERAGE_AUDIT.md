@@ -298,30 +298,34 @@ Aucun manque critique immediat n'a ete identifie.
 
 ### Contracts
 
-Aucune feature BDD executable trouvee.
+Executable et vert.
 
-Scenarios pertinents :
+Couvert :
 
-- le dernier contrat Outbox Event retourne le contrat actif `OUTBOX_EVENT` ;
-- absence de contrat actif retournant `404` ;
-- reponse contenant `contract_name` ;
-- reponse contenant `version` ;
-- reponse contenant `schema` ;
-- schema retourne correspondant au JSON Schema actif persiste.
+- contrat absent retourne `404` ;
+- contrat actif retourne `contract_name`, `version` et le schema ;
+- schema retourne exactement celui persiste ;
+- plusieurs versions ne retournent que la version active ;
+- contrat systeme independant du Project utilisateur courant.
+
+La feature `contracts.feature` couvre les cinq scenarios du contrat public.
 
 ### Legacy / System Metrics
 
-Aucune feature BDD executable trouvee.
+Executable et vert.
 
-Scenarios pertinents :
+Couvert :
 
-- lister toutes les system metrics persistees ;
-- lister les dernieres metrics ;
-- exposition texte Prometheus legacy ;
-- normalisation des noms de metriques avec remplacement des points par underscores ;
-- sortie `# TYPE` ;
-- valeur numerique exposee ;
-- comportement a vide.
+- listing de toutes les metrics systeme persistees ;
+- listing de la derniere valeur par metric ;
+- reponse coherente sans metric ;
+- exposition Prometheus legacy ;
+- transformation des `.` en `_` ;
+- presence de `# TYPE` et d'une valeur numerique ;
+- separation des metrics systeme et du vocabulaire MetricState metier.
+
+La feature `legacy_metrics.feature` couvre les six scenarios du comportement
+legacy.
 
 ### Runtime Metrics Dashboard
 
