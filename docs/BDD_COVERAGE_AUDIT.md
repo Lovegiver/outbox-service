@@ -61,17 +61,20 @@ Couvert :
 - rejet de mot de passe invalide ;
 - rejet d'utilisateur inconnu ;
 - rejet du login pour utilisateur inactif ;
-- rejet d'un format email invalide a l'inscription ;
+- rejet des formats email invalides et de l'email vide ;
+- normalisation des emails a l'inscription et au login ;
+- unicite des emails insensible a la casse ;
+- validation des bornes et de la complexite des mots de passe ;
 - endpoint d'identite authentifie ;
 - rejet d'identite sans token ;
 - rejet d'identite avec token invalide ;
 - rejet d'identite avec token expire ;
+- rejet d'identite avec signature incorrecte, claim `sub` absent, utilisateur
+  inconnu ou type de token inattendu ;
 - rejet d'identite pour utilisateur inactif.
 
-Scenarios pertinents manquants :
-
-- limites de politique de mot de passe une fois la politique produit definie ;
-- verification email une fois la fonctionnalite implementee.
+La verification email reste rattachee a la fonctionnalite produit future #22 et
+ne fait pas partie du contrat d'authentification actuellement implemente.
 
 ### Authorization Transverse
 

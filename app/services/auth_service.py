@@ -6,6 +6,7 @@ from app.repositories.project_member_repository import (
 )
 from app.repositories.user_repository import UserRepository
 from app.services.password_service import PasswordService
+from app.schemas.auth_schema import normalize_email
 
 
 class AuthService:
@@ -25,6 +26,8 @@ class AuthService:
         email: str,
         password: str,
     ) -> UserAccount:
+
+        email = normalize_email(email)
 
         existing_user = self.user_repository.find_by_email(
             email
@@ -51,6 +54,8 @@ class AuthService:
         email: str,
         password: str,
     ) -> UserAccount | None:
+
+        email = normalize_email(email)
 
         user = self.user_repository.find_by_email(
             email

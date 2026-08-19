@@ -71,6 +71,13 @@ class AuthTestHelper:
             secret_key="wrong-test-secret",
         )
 
+    def with_payload(self, payload: dict) -> str:
+        return jwt.encode(
+            payload,
+            JwtService.SECRET_KEY,
+            algorithm=JwtService.ALGORITHM,
+        )
+
     def as_admin(self, user: PersistedUserAccount) -> dict[str, str]:
         return self.valid(user=user, role="ADMIN").headers
 
