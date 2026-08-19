@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Optional
+from uuid import uuid4
 
 import jwt
 
@@ -98,9 +99,12 @@ class AuthTestHelper:
         secret_key: str,
     ) -> AuthenticatedUser:
         payload = {
+            "typ": "access",
             "sub": str(user.id),
             "email": user.email,
             "role": role,
+            "iat": datetime.now(UTC),
+            "jti": str(uuid4()),
         }
 
         if expires_delta is not None:

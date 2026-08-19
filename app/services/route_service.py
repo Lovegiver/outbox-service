@@ -1,5 +1,6 @@
 from app.models.route_definition import RouteDefinition
 from app.repositories.route_repository import RouteRepository
+from app.core.auth_type import AuthType
 
 
 class RouteService:
@@ -15,7 +16,10 @@ class RouteService:
         event_type_id: int,
         routing_key: str,
         destination_name: str,
-        destination_url: str
+        destination_url: str,
+        auth_type: AuthType = AuthType.NONE,
+        auth_config: dict | None = None,
+        secret_ref: str | None = None,
     ) -> RouteDefinition:
 
         route = RouteDefinition(
@@ -23,7 +27,10 @@ class RouteService:
             routing_key=routing_key,
             destination_name=destination_name,
             destination_url=destination_url,
-            is_active=True
+            is_active=True,
+            auth_type=auth_type,
+            auth_config=auth_config,
+            secret_ref=secret_ref,
         )
 
         return self.route_repository.create(route)
@@ -54,7 +61,10 @@ class RouteService:
             route_id: int,
             routing_key: str | None = None,
             destination_name: str | None = None,
-            destination_url: str | None = None
+            destination_url: str | None = None,
+            auth_type: AuthType | None = None,
+            auth_config: dict | None = None,
+            secret_ref: str | None = None,
     ) -> RouteDefinition:
 
         route = self.route_repository.find_by_id(
@@ -74,6 +84,15 @@ class RouteService:
 
         if destination_url is not None:
             route.destination_url = destination_url
+
+        if auth_type is not None:
+            route.auth_type = auth_type
+
+        if auth_config is not None:
+            route.auth_config = auth_config
+
+        if secret_ref is not None:
+            route.secret_ref = secret_ref
 
         return self.route_repository.save(
             route

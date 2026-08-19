@@ -72,6 +72,10 @@ class EventDeliveryRepository:
                     and_(
                         EventDelivery.status == DeliveryStatus.FAILED,
                         EventDelivery.attempt_count < max_attempts,
+                        or_(
+                            EventDelivery.next_attempt_at.is_(None),
+                            EventDelivery.next_attempt_at <= func.now(),
+                        ),
                     ),
                 )
             )

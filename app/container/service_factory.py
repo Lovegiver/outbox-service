@@ -75,7 +75,7 @@ from app.services.metric_builder_service import (
 class ServiceFactory:
     config_service = ConfigService()
     routing_service = RoutingService()
-    delivery_service = DeliveryService()
+    delivery_service = DeliveryService(config_service=config_service)
 
     @classmethod
     def create_event_ingress_service(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Optional, Any, Optional
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -76,6 +76,20 @@ class ProjectProbe(BaseProbe):
 
     def exists_by_name(self, name: str) -> bool:
         return self.exists_where("name = :name", {"name": name})
+
+    def is_active_by_name(self, name: str) -> bool:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT is_active
+                FROM outbox.project
+                WHERE name = :name
+                """
+            ),
+            {"name": name},
+        )
+
+        return bool(result.scalar_one())
 
     def get_by_name(
         self,
@@ -173,6 +187,63 @@ class ApiKeyProbe(BaseProbe):
             {"key_prefix": key_prefix},
         )
 
+    def exists_by_project_and_name(
+        self,
+        project: PersistedObject,
+        name: str,
+    ) -> bool:
+        return self.exists_where(
+            "project_id = :project_id AND name = :name",
+            {
+                "project_id": project.id,
+                "name": name,
+            },
+        )
+
+    def exists_active_by_project_and_name(
+        self,
+        project: PersistedObject,
+        name: str,
+    ) -> bool:
+        return self.exists_where(
+            "project_id = :project_id AND name = :name AND is_active = true",
+            {
+                "project_id": project.id,
+                "name": name,
+            },
+        )
+
+    def exists_revoked_by_project_and_name(
+        self,
+        project: PersistedObject,
+        name: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            project_id = :project_id
+            AND name = :name
+            AND is_active = false
+            AND revoked_at IS NOT NULL
+            """,
+            {
+                "project_id": project.id,
+                "name": name,
+            },
+        )
+
+    def exists_active_by_project_and_id(
+        self,
+        project: PersistedObject,
+        api_key_id: int,
+    ) -> bool:
+        return self.exists_where(
+            "project_id = :project_id AND id = :api_key_id AND is_active = true",
+            {
+                "project_id": project.id,
+                "api_key_id": api_key_id,
+            },
+        )
+
 
 class MetricsTokenProbe(BaseProbe):
     def __init__(self, connection: Connection):
@@ -202,6 +273,35 @@ class EventTypeProbe(BaseProbe):
         return self.exists_where(
             "project_id = :project_id AND code = :code AND is_active = true",
             {"project_id": project.id, "code": code},
+        )
+
+    def get_by_project_and_code(
+        self,
+        project: PersistedObject,
+        code: str,
+    ) -> PersistedEventType:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id, code, name
+                FROM outbox.event_type
+                WHERE project_id = :project_id
+                AND code = :code
+                """
+            ),
+            {
+                "project_id": project.id,
+                "code": code,
+            },
+        )
+
+        row = result.mappings().one()
+
+        return PersistedEventType(
+            id=int(row["id"]),
+            project=project,
+            code=str(row["code"]),
+            name=str(row["name"]),
         )
 
     def get_by_code(
@@ -255,6 +355,111 @@ class SchemaDefinitionProbe(BaseProbe):
             {"event_type_id": event_type.id, "version": json_version_internal},
         )
 
+    def exists_active_by_event_type_and_version(
+        self,
+        event_type: PersistedObject,
+        json_version_internal: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND json_version_internal = :version
+            AND is_active = true
+            """,
+            {"event_type_id": event_type.id, "version": json_version_internal},
+        )
+
+    def json_schema_by_event_type_and_version(
+        self,
+        event_type: PersistedObject,
+        json_version_internal: str,
+    ) -> dict:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT json_schema
+                FROM outbox.schema_definition
+                WHERE event_type_id = :event_type_id
+                AND json_version_internal = :version
+                """
+            ),
+            {"event_type_id": event_type.id, "version": json_version_internal},
+        )
+
+        return dict(result.scalar_one())
+
+
+    def get_id_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id
+                FROM outbox.route_definition
+                WHERE event_type_id = :event_type_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+        return int(result.scalar_one())
+
+    def exists_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> bool:
+        return self.exists_where(
+            "event_type_id = :event_type_id AND destination_name = :destination_name",
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+    def exists_active_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND destination_name = :destination_name
+            AND is_active = true
+            """,
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+    def exists_by_event_type_destination_and_url(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+        destination_url: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND destination_name = :destination_name
+            AND destination_url = :destination_url
+            """,
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+                "destination_url": destination_url,
+            },
+        )
+
     def exists_active_by_event_type(self, event_type: PersistedObject) -> bool:
         return self.exists_where(
             "event_type_id = :event_type_id AND is_active = true",
@@ -291,13 +496,164 @@ class RouteDefinitionProbe(BaseProbe):
             {"event_type_id": event_type.id},
         )
 
+    def get_id_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id
+                FROM outbox.route_definition
+                WHERE event_type_id = :event_type_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+        return int(result.scalar_one())
+
+    def exists_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> bool:
+        return self.exists_where(
+            "event_type_id = :event_type_id AND destination_name = :destination_name",
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+    def exists_active_by_event_type_and_destination(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND destination_name = :destination_name
+            AND is_active = true
+            """,
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+            },
+        )
+
+    def exists_by_event_type_destination_and_url(
+        self,
+        event_type: PersistedObject,
+        destination_name: str,
+        destination_url: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_type_id = :event_type_id
+            AND destination_name = :destination_name
+            AND destination_url = :destination_url
+            """,
+            {
+                "event_type_id": event_type.id,
+                "destination_name": destination_name,
+                "destination_url": destination_url,
+            },
+        )
+
 
 class EventProbe(BaseProbe):
     def __init__(self, connection: Connection):
         super().__init__(connection, "event")
 
+    def exists_by_uuid_project_and_event_type(
+        self,
+        event_uuid: str,
+        project: PersistedObject,
+        event_type: PersistedObject,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_uuid = :event_uuid
+            AND project_id = :project_id
+            AND event_type_id = :event_type_id
+            """,
+            {
+                "event_uuid": event_uuid,
+                "project_id": project.id,
+                "event_type_id": event_type.id,
+            },
+        )
+
+    def exists_by_project_and_event_type(
+        self,
+        project: PersistedObject,
+        event_type: PersistedObject,
+    ) -> bool:
+        return self.exists_where(
+            "project_id = :project_id AND event_type_id = :event_type_id",
+            {
+                "project_id": project.id,
+                "event_type_id": event_type.id,
+            },
+        )
+
+    def status_by_id(self, event_id: int) -> str:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT status
+                FROM outbox.event
+                WHERE id = :event_id
+                """
+            ),
+            {"event_id": event_id},
+        )
+
+        return str(result.scalar_one())
+
+    def schema_version_by_id(self, event_id: int) -> str:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT json_version_internal
+                FROM outbox.event
+                WHERE id = :event_id
+                """
+            ),
+            {"event_id": event_id},
+        )
+
+        return str(result.scalar_one())
+
     def exists_by_uuid(self, event_uuid: str) -> bool:
         return self.exists_where("event_uuid = :event_uuid", {"event_uuid": event_uuid})
+
+
+    def exists_by_event_destination_and_url(
+        self,
+        event: PersistedObject,
+        destination_name: str,
+        destination_url: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_id = :event_id
+            AND destination_name = :destination_name
+            AND destination_url = :destination_url
+            """,
+            {
+                "event_id": event.id,
+                "destination_name": destination_name,
+                "destination_url": destination_url,
+            },
+        )
 
     def exists_by_status(self, status: str) -> bool:
         return self.exists_where("status = :status", {"status": status})
@@ -313,14 +669,163 @@ class EventDeliveryProbe(BaseProbe):
     def __init__(self, connection: Connection):
         super().__init__(connection, "event_delivery")
 
+    def exists_by_event_id(self, event_id: int) -> bool:
+        return self.exists_where(
+            "event_id = :event_id",
+            {"event_id": event_id},
+        )
+
+    def count_by_event_id(self, event_id: int) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                """
+            ),
+            {"event_id": event_id},
+        )
+        return int(result.scalar_one())
+
+    def status_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT status
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        return str(result.scalar_one())
+
+    def destination_type_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT destination_type
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        return str(result.scalar_one())
+
+    def destination_url_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> Optional[str]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT destination_url
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        value = result.scalar_one()
+        return str(value) if value is not None else None
+
+    def attempt_count_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT attempt_count
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        return int(result.scalar_one())
+
+    def last_error_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> Optional[str]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT last_error
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        value = result.scalar_one()
+        return str(value) if value is not None else None
+
+    def event_id_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT event_id
+                FROM outbox.event_delivery
+                WHERE event_id = :event_id
+                AND destination_name = :destination_name
+                """
+            ),
+            {"event_id": event.id, "destination_name": destination_name},
+        )
+        return int(result.scalar_one())
+
+
     def exists_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> bool:
         return self.exists_where(
             "event_id = :event_id AND destination_name = :destination_name",
             {"event_id": event.id, "destination_name": destination_name},
         )
 
+    def exists_by_event_destination_and_url(
+        self,
+        event: PersistedObject,
+        destination_name: str,
+        destination_url: str,
+    ) -> bool:
+        return self.exists_where(
+            """
+            event_id = :event_id
+            AND destination_name = :destination_name
+            AND destination_url = :destination_url
+            """,
+            {
+                "event_id": event.id,
+                "destination_name": destination_name,
+                "destination_url": destination_url,
+            },
+        )
+
     def exists_by_status(self, status: str) -> bool:
         return self.exists_where("status = :status", {"status": status})
+
+    def status_by_id(self, delivery_id: int) -> str:
+        return str(
+            self.connection.execute(
+                text("SELECT status FROM outbox.event_delivery WHERE id = :id"),
+                {"id": delivery_id},
+            ).scalar_one()
+        )
+
+    def attempt_count_by_id(self, delivery_id: int) -> int:
+        return int(
+            self.connection.execute(
+                text("SELECT attempt_count FROM outbox.event_delivery WHERE id = :id"),
+                {"id": delivery_id},
+            ).scalar_one()
+        )
+
+    def last_error_by_id(self, delivery_id: int) -> Optional[str]:
+        value = self.connection.execute(
+            text("SELECT last_error FROM outbox.event_delivery WHERE id = :id"),
+            {"id": delivery_id},
+        ).scalar_one()
+
+        return str(value) if value is not None else None
 
 
 class MetricDefinitionProbe(BaseProbe):

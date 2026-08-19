@@ -35,6 +35,9 @@ def create_route(
         routing_key=request.routing_key,
         destination_name=request.destination_name,
         destination_url=request.destination_url,
+        auth_type=request.auth_type,
+        auth_config=request.auth_config,
+        secret_ref=request.secret_ref,
     )
 
 
@@ -71,9 +74,20 @@ def update_route(
 ):
     service = ServiceFactory.create_route_service(db)
 
-    return service.update_route(
-        route_id=route_id,
-        routing_key=request.routing_key,
-        destination_name=request.destination_name,
-        destination_url=request.destination_url,
-    )
+    try:
+        return service.update_route(
+            route_id=route_id,
+            routing_key=request.routing_key,
+            destination_name=request.destination_name,
+            destination_url=request.destination_url,
+            auth_type=request.auth_type,
+            auth_config=request.auth_config,
+            secret_ref=request.secret_ref,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException, status
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from app.services.password_service import PasswordService
 from tests.domain.persisted_object import (
     PersistedEvent,
     PersistedEventType,
@@ -16,6 +17,7 @@ from tests.domain.record import (
     EventTypeRecord,
     ProjectMemberRecord,
     ProjectRecord,
+    RouteDefinitionRecord,
     SchemaDefinitionRecord,
     UserAccountRecord,
 )
@@ -40,6 +42,34 @@ class MinimalEventGraphSeed:
 class Seed:
     def __init__(self, factory: ObjectFactory):
         self.factory = factory
+
+    def project_registered(
+        self,
+        name: str,
+        description: str | None = None,
+        project_status: str = "active",
+    ) -> PersistedProject:
+        return self.factory.project(
+            ProjectRecord(
+                name=name,
+                description=description,
+                is_active=(project_status == "active"),
+            )
+        )
+
+    def project_member_registered(
+        self,
+        project: PersistedProject,
+        user: PersistedUserAccount,
+        role: str,
+    ) -> PersistedProjectMember:
+        return self.factory.project_member(
+            ProjectMemberRecord(
+                project=project,
+                user=user,
+                role=role,
+            )
+        )
 
     def project_with_member(
         self,
@@ -102,6 +132,91 @@ class Seed:
             user_email=user_email,
         )
 
+    def event_type_with_schema(
+        self,
+        project: PersistedProject,
+        code: str,
+        name: str,
+        json_schema: Optional[dict] = None,
+    ) -> PersistedEventType:
+        event_type = self.factory.event_type(
+            EventTypeRecord(
+                project=project,
+                code=code,
+                name=name,
+            )
+        )
+
+        self.factory.schema_definition(
+            SchemaDefinitionRecord(
+                event_type=event_type,
+                json_schema=json_schema or {"type": "object"},
+            )
+        )
+
+        return event_type
+
+    def event_type_registered(
+        self,
+        project: PersistedProject,
+        code: str,
+        name: str,
+        description: str | None = None,
+        event_type_status: str = "active",
+    ) -> PersistedEventType:
+        return self.factory.event_type(
+            EventTypeRecord(
+                project=project,
+                code=code,
+                name=name,
+                description=description,
+                is_active=(event_type_status == "active"),
+            )
+        )
+
+    def route_registered(
+        self,
+        event_type: PersistedEventType,
+        routing_key: str,
+        destination_name: str,
+        destination_url: str,
+    ):
+        return self.factory.route_definition(
+            RouteDefinitionRecord(
+                event_type=event_type,
+                routing_key=routing_key,
+                destination_name=destination_name,
+                destination_url=destination_url,
+            )
+        )
+
+    def received_event_registered(
+        self,
+        event_type: PersistedEventType,
+        payload: dict | None = None,
+    ) -> PersistedEvent:
+        schema_definition = self.factory.schema_definition(
+            SchemaDefinitionRecord(
+                event_type=event_type,
+                json_schema={
+                    "type": "object",
+                    "properties": {
+                        "duration_seconds": {"type": "number"},
+                    },
+                    "required": ["duration_seconds"],
+                },
+            )
+        )
+
+        return self.factory.event(
+            EventRecord(
+                event_type=event_type,
+                schema_definition=schema_definition,
+                payload=payload or {"duration_seconds": 12.3},
+                status="RECEIVED",
+            )
+        )
+
     def minimal_event_graph(
         self,
         project_name: str = "Hermes",
@@ -142,4 +257,20 @@ class Seed:
             event_type=event_type,
             schema_definition=schema_definition,
             event=event,
+        )
+
+    def user_registered(
+        self,
+        email: str,
+        password: str,
+        global_role: str = "USER",
+        account_status: str = "active",
+    ):
+        return self.factory.user_account(
+            UserAccountRecord(
+                email=email,
+                password_hash=PasswordService.hash_password(password),
+                role=global_role,
+                is_active=(account_status == "active"),
+            )
         )

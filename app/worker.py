@@ -1,6 +1,9 @@
 import asyncio
+import random
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy.orm import Session
 
 from app.container.service_factory import ServiceFactory
 from app.core.delivery_status import DeliveryStatus
@@ -12,7 +15,6 @@ from app.runtime.runtime_event import RuntimeEvent
 from app.runtime.runtime_event_bus import runtime_event_bus
 from app.runtime.runtime_event_type import RuntimeEventType
 from app.services.config_service import ConfigService
-
 
 """
 Background worker responsible for executing the secondary Outbox pipeline.
@@ -43,26 +45,53 @@ scheduler = BackgroundScheduler()
 config_service = ConfigService()
 
 
-def route_received_events() -> None:
-    """
-    Process all events currently marked as RECEIVED.
+def retry_delay_seconds(attempt_count: int) -> float:
+    """Compute the configured delay before the next delivery attempt."""
+    strategy = config_service.get_retry_strategy()
 
-    For each received event, the worker executes the secondary processing pipeline:
+    if strategy != "exponential":
+        raise ValueError(f"Unsupported retry strategy: {strategy}")
+
+    initial_delay = config_service.get_retry_delay_seconds()
+    max_delay = config_service.get_retry_max_delay_seconds()
+    delay = min(
+        initial_delay * (2 ** max(attempt_count - 1, 0)),
+        max_delay,
+    )
+
+    if config_service.is_retry_jitter_enabled():
+        return random.uniform(0, delay)
+
+    return float(delay)
+
+
+def route_received_events(db: Session | None = None) -> None:
+    """
+    Route all events currently marked as RECEIVED.
+
+    This function is a runtime processing unit, not the scheduler itself.
+
+    When called by the production worker, no Session is provided: the function
+    opens its own transaction boundary, commits on success, rolls back on
+    failure, and closes the Session.
+
+    When called by integration or BDD tests, the caller may provide an existing
+    Session. In that case, the function participates in the caller-owned
+    transaction and never commits, rolls back, or closes the Session itself.
+
+    For each received event, the function executes the secondary processing
+    pipeline:
 
     1. metrics extraction and observation persistence;
     2. route resolution based on EventType;
-    3. delivery creation;
-    4. event status transition to ROUTED.
-
-    All operations executed for a given event are committed together
-    within the processing transaction boundary.
-
-    The ingestion transaction is intentionally separated from this
-    processing phase in order to keep event reception fast, durable,
-    and resilient.
+    3. EventDelivery creation;
+    4. Event status transition to ROUTED or UNROUTABLE.
     """
 
-    db = SessionLocal()
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
 
     try:
         event_ingress_service = ServiceFactory.create_event_ingress_service(db)
@@ -91,6 +120,7 @@ def route_received_events() -> None:
                     },
                 )
             )
+
             routes = route_service.route_repository.find_by_event_type(
                 event.event_type_id
             )
@@ -101,6 +131,9 @@ def route_received_events() -> None:
                     destination_name=route.destination_name,
                     destination_type="webhook",
                     destination_url=route.destination_url,
+                    auth_type=route.auth_type,
+                    auth_config=route.auth_config,
+                    secret_ref=route.secret_ref,
                     status=DeliveryStatus.PENDING,
                 )
 
@@ -124,6 +157,7 @@ def route_received_events() -> None:
                         },
                     )
                 )
+
             else:
                 event.status = EventStatus.UNROUTABLE
                 event_ingress_service.event_repository.save(event)
@@ -143,20 +177,37 @@ def route_received_events() -> None:
                     )
                 )
 
-                continue
+        if owns_session:
+            db.commit()
 
-        db.commit()
+    except Exception:
+        if owns_session:
+            db.rollback()
+            logger.exception("[OB1-worker] routing error")
+            return
 
-    except Exception as exc:
-        db.rollback()
-        logger.info(f"[OB1-worker] routing error={exc}")
+        raise
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 
 
-def deliver_one_delivery(delivery_id: int) -> None:
-    db = SessionLocal()
+def deliver_one_delivery(delivery_id: int, db: Session | None = None) -> None:
+    """
+    Execute a single EventDelivery.
+
+    When called by production runtime code, no Session is provided and this
+    function owns its transaction boundary.
+
+    When called by BDD or integration tests, an existing Session can be
+    provided so the delivery execution participates in the test transaction.
+    """
+
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
 
     try:
         event_ingress_service = ServiceFactory.create_event_ingress_service(db)
@@ -179,8 +230,9 @@ def deliver_one_delivery(delivery_id: int) -> None:
         )
 
         if event is None:
-            delivery.status = DeliveryStatus.FAILED
-            delivery.last_error = f"Event not found: {delivery.event_id}"
+            delivery.status = DeliveryStatus.DEAD_LETTER
+            delivery.last_error = f"EVENT_NOT_FOUND: {delivery.event_id}"
+            delivery.next_attempt_at = None
             delivery_repository.save(delivery)
             db.commit()
             return
@@ -204,7 +256,9 @@ def deliver_one_delivery(delivery_id: int) -> None:
         )
 
         delivery_repository.save(delivery)
-        db.commit()
+
+        if owns_session:
+            db.commit()
 
         publish_runtime_event(
             RuntimeEvent(
@@ -220,10 +274,13 @@ def deliver_one_delivery(delivery_id: int) -> None:
         )
 
     except Exception as exc:
-        db.rollback()
+        if owns_session:
+            db.rollback()
+
         persist_delivery_failure(
             delivery_id=delivery_id,
             error=exc,
+            db=db if not owns_session else None,
         )
 
         logger.info(
@@ -233,13 +290,25 @@ def deliver_one_delivery(delivery_id: int) -> None:
         )
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 
 def persist_delivery_failure(
         delivery_id: int,
         error: Exception,
+        db: Session | None = None,
 ) -> None:
-    db = SessionLocal()
+    """
+    Persist the failed result of a delivery attempt.
+
+    The function can either own its Session in production failure handling or
+    participate in a caller-owned transaction during BDD/integration tests.
+    """
+
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
 
     try:
         delivery_repository = (
@@ -258,6 +327,7 @@ def persist_delivery_failure(
 
         if delivery.attempt_count >= max_attempts:
             delivery.status = DeliveryStatus.DEAD_LETTER
+            delivery.next_attempt_at = None
 
             publish_runtime_event(
                 RuntimeEvent(
@@ -277,6 +347,10 @@ def persist_delivery_failure(
             )
         else:
             delivery.status = DeliveryStatus.FAILED
+            delay_seconds = retry_delay_seconds(delivery.attempt_count)
+            delivery.next_attempt_at = (
+                datetime.now(UTC) + timedelta(seconds=delay_seconds)
+            )
 
             publish_runtime_event(
                 RuntimeEvent(
@@ -289,6 +363,7 @@ def persist_delivery_failure(
                         "last_error": delivery.last_error,
                         "destination_name": delivery.destination_name,
                         "destination_url": delivery.destination_url,
+                        "next_attempt_at": delivery.next_attempt_at.isoformat(),
                     },
                 )
             )
@@ -297,7 +372,8 @@ def persist_delivery_failure(
         db.commit()
 
     except Exception as save_exc:
-        db.rollback()
+        if owns_session:
+            db.rollback()
 
         logger.info(
             f"[OB1-worker] failed to persist "
@@ -307,11 +383,23 @@ def persist_delivery_failure(
         )
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 
 
-def deliver_pending_deliveries() -> None:
-    db = SessionLocal()
+def deliver_pending_deliveries(db: Session | None = None) -> None:
+    """
+    Execute all pending or retryable deliveries.
+
+    The production worker lets this function open its own short transaction for
+    selecting eligible deliveries. Tests may provide a Session so seeded
+    deliveries remain visible inside the same transaction.
+    """
+
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
 
     try:
         delivery_repository = ServiceFactory.create_event_delivery_repository(db)
@@ -327,10 +415,14 @@ def deliver_pending_deliveries() -> None:
         ]
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 
     for delivery_id in delivery_ids:
-        deliver_one_delivery(delivery_id)
+        deliver_one_delivery(
+            delivery_id=delivery_id,
+            db=db if not owns_session else None,
+        )
 
 
 def aggregate_prometheus_metric_state() -> None:

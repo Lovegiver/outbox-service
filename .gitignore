@@ -17,3 +17,4 @@ build/
 *.patch*
 
 frontend/ob1-admin/
+tools/write_bdd_*.py

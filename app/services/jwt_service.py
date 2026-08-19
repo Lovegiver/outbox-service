@@ -1,15 +1,19 @@
 from datetime import datetime, timedelta, UTC
+from uuid import uuid4
 
 import jwt
 from app.models.user_account import UserAccount
+from app.services.config_service import ConfigService
 
 
 class JwtService:
 
-    SECRET_KEY = "CHANGE_ME"
-    ALGORITHM = "HS256"
-
-    ACCESS_TOKEN_EXPIRE_MINUTES = 30
+    _config = ConfigService()
+    SECRET_KEY = _config.get_jwt_secret_key()
+    ALGORITHM = _config.get_jwt_algorithm()
+    ACCESS_TOKEN_EXPIRE_MINUTES = (
+        _config.get_access_token_expire_minutes()
+    )
 
     @classmethod
     def create_access_token(
@@ -17,17 +21,19 @@ class JwtService:
         user: UserAccount,
     ) -> str:
 
-        expiration = datetime.now(
-            UTC
-        ) + timedelta(
+        issued_at = datetime.now(UTC)
+        expiration = issued_at + timedelta(
             minutes=cls.ACCESS_TOKEN_EXPIRE_MINUTES
         )
 
         payload = {
+            "typ": "access",
             "sub": str(user.id),
             "email": user.email,
             "role": user.role.value,
+            "iat": issued_at,
             "exp": expiration,
+            "jti": str(uuid4()),
         }
 
         return jwt.encode(
@@ -42,8 +48,16 @@ class JwtService:
         token: str,
     ) -> dict:
 
-        return jwt.decode(
+        payload = jwt.decode(
             token,
             cls.SECRET_KEY,
             algorithms=[cls.ALGORITHM],
+            options={
+                "require": ["typ", "sub", "iat", "exp", "jti"],
+            },
         )
+
+        if payload.get("typ") != "access":
+            raise jwt.InvalidTokenError("Unexpected token type")
+
+        return payload
