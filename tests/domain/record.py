@@ -107,9 +107,13 @@ class EventDeliveryRecord:
     destination_name: str = "test-destination"
     destination_type: str = "HTTP"
     destination_url: Optional[str] = "https://example.test/webhook"
+    auth_type: str = "NONE"
+    auth_config: Optional[dict] = None
+    secret_ref: Optional[str] = None
     status: str = "PENDING"
     attempt_count: int = 0
     last_error: Optional[str] = None
+    next_attempt_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)

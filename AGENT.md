@@ -128,6 +128,37 @@ If implementation details are uncertain, ask for:
 
 Do not assume.
 
+## Mandatory impact analysis
+
+Every change must be followed through to its direct and indirect consequences.
+A task is not complete merely because its primary file has been modified.
+
+Before considering a change complete:
+
+1. identify the affected producers, consumers, contracts, and persisted data;
+2. search the repository for every relevant reference;
+3. update all impacted models, migrations, repositories, services, APIs,
+   configuration files, tests, and documentation;
+4. verify compatibility across development, test, and production environments;
+5. run validations and tests proportionate to the change;
+6. explicitly report any consequence that remains untreated or blocked.
+
+Typical impact chains include:
+
+- YAML setting changed → update `ConfigService`, runtime consumers, environment
+  profiles, validation, and tests;
+- model or database field changed → add an Alembic migration and update
+  factories, probes, services, schemas, and tests;
+- API contract changed → update request/response schemas, services, clients,
+  documentation, and BDD scenarios;
+- lifecycle status changed → review repositories, workers, retries, metrics,
+  runtime events, and frontend contracts;
+- secret or authentication setting changed → verify secure loading, validation,
+  propagation, runtime use, and absence from public responses and logs.
+
+Do not present a partial implementation as complete. If a consequence cannot
+be handled within the current scope, identify it clearly before handoff.
+
 ---
 
 ## Architectural philosophy

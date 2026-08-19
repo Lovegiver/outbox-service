@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 
 from app.core.delivery_status import DeliveryStatus
 from app.database import Base
-from sqlalchemy import DateTime, ForeignKey, Integer, String, BigInteger
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -41,6 +41,19 @@ class EventDelivery(Base):
         nullable=True,
     )
 
+    auth_type: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="NONE",
+    )
+
+    auth_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    secret_ref: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
@@ -55,6 +68,11 @@ class EventDelivery(Base):
 
     last_error: Mapped[Optional[str]] = mapped_column(
         String(1000),
+        nullable=True,
+    )
+
+    next_attempt_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
 

@@ -1,6 +1,7 @@
 import yaml
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.container.service_factory import ServiceFactory
@@ -47,11 +48,36 @@ def create_metric_definition(
     """
     service = ServiceFactory.create_metric_definition_admin_service(db)
 
-    return service.create_metric_definition(
+    try:
+        return service.create_metric_definition(
+            event_type_id=event_type_id,
+            code=request.code,
+            name=request.name,
+            description=request.description,
+        )
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Metric definition already exists for this EventType",
+        ) from exc
+
+@router.get("", response_model=list[MetricDefinitionRead])
+def list_metric_definitions(
+    event_type_id: int,
+    _: UserAccount = Depends(
+        require_event_type_permission(
+            ProjectPermission.METRICS_READ
+        )
+    ),
+    db: Session = Depends(get_db),
+):
+    """
+    List metric definitions attached to an EventType.
+    """
+    service = ServiceFactory.create_metric_definition_admin_service(db)
+
+    return service.list_metric_definitions(
         event_type_id=event_type_id,
-        code=request.code,
-        name=request.name,
-        description=request.description,
     )
 
 

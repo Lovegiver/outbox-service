@@ -52,10 +52,86 @@ class ConfigService:
         )
 
     def get_retry_delay_seconds(self) -> int:
+        """Return the initial retry delay kept for legacy callers."""
         return int(
             self.config
             .get("delivery", {})
-            .get("retry_delay_seconds", 30)
+            .get("retry", {})
+            .get("initial_delay_seconds", 5)
+        )
+
+    def get_retry_strategy(self) -> str:
+        return str(
+            self.config
+            .get("delivery", {})
+            .get("retry", {})
+            .get("strategy", "exponential")
+        )
+
+    def get_retry_max_delay_seconds(self) -> int:
+        return int(
+            self.config
+            .get("delivery", {})
+            .get("retry", {})
+            .get("max_delay_seconds", 600)
+        )
+
+    def is_retry_jitter_enabled(self) -> bool:
+        return bool(
+            self.config
+            .get("delivery", {})
+            .get("retry", {})
+            .get("jitter", True)
+        )
+
+    def is_delivery_https_required(self) -> bool:
+        return bool(
+            self.config
+            .get("delivery", {})
+            .get("http", {})
+            .get("require_https", False)
+        )
+
+    def get_destination_secret_provider(self) -> str:
+        return str(
+            self.config
+            .get("security", {})
+            .get("destination_secrets", {})
+            .get("provider", "environment")
+        )
+
+    def get_jwt_secret_key(self) -> str:
+        secret_key = os.getenv("OUTBOX_JWT_SECRET_KEY") or (
+            self.config
+            .get("security", {})
+            .get("jwt", {})
+            .get("secret_key")
+        )
+
+        if not secret_key:
+            raise RuntimeError("security.jwt.secret_key is required.")
+
+        if self.env == "prod" and str(secret_key).startswith("CHANGE_ME"):
+            raise RuntimeError(
+                "OUTBOX_JWT_SECRET_KEY must be configured in production."
+            )
+
+        return str(secret_key)
+
+    def get_jwt_algorithm(self) -> str:
+        return str(
+            self.config
+            .get("security", {})
+            .get("jwt", {})
+            .get("algorithm", "HS256")
+        )
+
+    def get_access_token_expire_minutes(self) -> int:
+        return int(
+            self.config
+            .get("security", {})
+            .get("jwt", {})
+            .get("access_token_expire_minutes", 30)
         )
 
     def get_database_url(self) -> str:

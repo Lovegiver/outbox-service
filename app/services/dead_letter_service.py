@@ -102,3 +102,4 @@ class DeadLetterService:
         delivery.status = DeliveryStatus.PENDING
         delivery.last_error = None
         delivery.attempt_count = 0
+        delivery.next_attempt_at = None
