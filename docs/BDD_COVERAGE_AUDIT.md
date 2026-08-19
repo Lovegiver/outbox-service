@@ -325,9 +325,9 @@ Scenarios pertinents :
 
 ### Runtime Metrics Dashboard
 
-Aucune feature BDD executable trouvee.
+Executable et vert.
 
-Scenarios pertinents :
+Couvert :
 
 - summary vide sur base vide ;
 - compteur total d'Events ;
@@ -338,6 +338,10 @@ Scenarios pertinents :
 - age du plus ancien Event `RECEIVED` ;
 - age de la plus ancienne delivery `PENDING` ;
 - PostgreSQL comme source de verite, independamment des evenements WebSocket live.
+
+Scenario pertinent manquant :
+
+- coherence des compteurs apres retry d'une dead letter.
 
 ### YAML Metrics Observatory
 
