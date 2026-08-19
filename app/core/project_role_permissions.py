@@ -16,6 +16,7 @@ PROJECT_ROLE_PERMISSIONS: dict[ProjectMemberRole, set[ProjectPermission]] = {
         ProjectPermission.API_KEY_READ,
         ProjectPermission.API_KEY_WRITE,
         ProjectPermission.METRICS_READ,
+        ProjectPermission.METRICS_WRITE,
     },
 
     ProjectMemberRole.VIEWER: {

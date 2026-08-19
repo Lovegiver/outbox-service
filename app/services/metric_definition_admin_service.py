@@ -53,6 +53,26 @@ class MetricDefinitionAdminService:
 
         return metric_definition
 
+    def list_metric_definitions(
+        self,
+        event_type_id: int,
+    ) -> list[MetricDefinition]:
+        """
+        List metric definitions attached to an EventType.
+
+        Args:
+            event_type_id: EventType that owns the metric definitions.
+
+        Returns:
+            Metric definitions ordered by id.
+        """
+        return (
+            self.db.query(MetricDefinition)
+            .filter(MetricDefinition.event_type_id == event_type_id)
+            .order_by(MetricDefinition.id.asc())
+            .all()
+        )
+
     def create_metric_definition_version(
         self,
         metric_definition_id: int,
