@@ -78,7 +78,7 @@ ne fait pas partie du contrat d'authentification actuellement implemente.
 
 ### Authorization Transverse
 
-Partiellement couvert par les autres fichiers de feature, mais il n'existe pas encore de feature transverse dediee a l'autorisation.
+Executable et vert dans une feature transverse dediee.
 
 Couvert indirectement :
 
@@ -90,11 +90,16 @@ Couvert indirectement :
 - effets des permissions OWNER/DEVELOPER/VIEWER sur Projects, EventTypes, Schemas, Routes, API Keys, Metrics et Dead Letters ;
 - cas `403` pour utilisateur non membre ;
 - API key absente, invalide ou revoquee sur l'ingestion d'Events.
+- matrice complete OWNER/DEVELOPER/VIEWER/non-membre/ADMIN sur les permissions
+  Project, EventType, Schema, Route, API Key et Metrics ;
+- contrats `401` pour authentification absente ou invalide et `403` pour un
+  acteur authentifie sans permission ;
+- vocabulaire role-based pour les scenarios metier et permission-based pour
+  les controles transverses.
 
 Scenarios pertinents manquants :
 
-- une feature BDD transverse compacte qui prouve la matrice de permissions sans dupliquer chaque feature metier ;
-- documentation explicite du vocabulaire BDD role-based vs permission-based.
+- isolation d'une API key lorsqu'elle tente d'ingerer dans un autre Project.
 
 ### Projects
 

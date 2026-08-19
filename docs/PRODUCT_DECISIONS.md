@@ -63,6 +63,26 @@ des paramètres d'exploitation configurables.
 - Le dernier OWNER ne peut être supprimé ou rétrogradé. Il doit transférer la
   propriété ou désactiver le Project avant de quitter.
 
+### Vocabulaire et matrice d'autorisation
+
+Les scénarios métier expriment le rôle de l'acteur (`OWNER`, `DEVELOPER`,
+`VIEWER`). Les scénarios transverses d'infrastructure peuvent nommer la
+permission précise contrôlée. Un membre sans `PROJECT_READ` n'existe pas dans
+le modèle actuel : cette absence de permission représente un non-membre.
+
+| Famille | OWNER | DEVELOPER | VIEWER |
+| --- | --- | --- | --- |
+| Project | lecture, écriture | lecture | lecture |
+| EventType | lecture, écriture | lecture, écriture | lecture |
+| Schema | lecture, écriture | lecture, écriture | lecture |
+| Route | lecture, écriture | lecture, écriture | lecture |
+| API Key | lecture, écriture | lecture, écriture | lecture |
+| Metrics | lecture, écriture | lecture, écriture | lecture |
+
+Un `ADMIN` global contourne les contrôles de membership. Un utilisateur
+authentifié sans permission reçoit `403`; une authentification absente,
+invalide ou expirée reçoit `401`.
+
 La suppression RGPD d'un compte doit faire l'objet d'une conception dédiée.
 La piste retenue est l'effacement des données personnelles et l'anonymisation
 irréversible lorsque la conservation technique d'une ligne est nécessaire,
