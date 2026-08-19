@@ -85,3 +85,14 @@ Feature: Cross-cutting authorization
     Given a "NON_MEMBER" actor for project "Hermes"
     When the actor lists project "Hermes" members
     Then the response should have status 403
+
+  Scenario: Prevent an API key from ingesting into another project
+    Given the following projects are registered:
+      | name   | description         | owner email | owner role | project status |
+      | Hermes | Source project      |             |            | active         |
+      | Apollo | Destination project |             |            | active         |
+    And project "Hermes" has active API key "Hermes ingestion"
+    And project "Apollo" has ingestible event type "article.analyzed"
+    When an event is submitted to project "Apollo" using the API key from project "Hermes"
+    Then the response should have status 403
+    And no event should be persisted for project "Apollo" and event type "article.analyzed"

@@ -1,5 +1,6 @@
 from pytest_bdd import given, parsers, then, when
 
+from tests.bdd.steps.event_steps import _event_state
 from tests.infrastructure.context import TestContext
 
 
@@ -110,6 +111,33 @@ def unauthenticated_actor_lists_project_members(
 ) -> None:
     project = ctx.probe.project.get_by_name(project_name)
     ctx.last_response = ctx.client.get(f"/api/admin/projects/{project.id}/members")
+
+
+@when(
+    parsers.parse(
+        'an event is submitted to project "{target_project_name}" using the API key from project "{source_project_name}"'
+    )
+)
+def event_is_submitted_with_another_projects_api_key(
+    ctx: TestContext,
+    target_project_name: str,
+    source_project_name: str,
+) -> None:
+    project = ctx.probe.project.get_by_name(target_project_name)
+    event_type = ctx.probe.event_type.get_by_project_and_code(
+        project,
+        "article.analyzed",
+    )
+    ctx.last_response = ctx.client.post(
+        "/events",
+        json={
+            "project_id": project.id,
+            "event_type_id": event_type.id,
+            "json_version_internal": "1.0",
+            "payload": {"duration_seconds": 12.3},
+        },
+        headers={"X-API-Key": _event_state(ctx)["api_keys"][source_project_name]},
+    )
 
 
 @then(parsers.parse('the authorization result should be "{result}"'))

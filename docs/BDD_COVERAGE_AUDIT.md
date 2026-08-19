@@ -96,10 +96,10 @@ Couvert indirectement :
   acteur authentifie sans permission ;
 - vocabulaire role-based pour les scenarios metier et permission-based pour
   les controles transverses.
-
-Scenarios pertinents manquants :
-
 - isolation d'une API key lorsqu'elle tente d'ingerer dans un autre Project.
+
+Aucun manque critique immediat n'a ete identifie pour l'autorisation
+transverse.
 
 ### Projects
 
