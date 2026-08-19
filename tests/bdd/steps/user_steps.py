@@ -50,3 +50,15 @@ def user_registration_assertion(
         presence=presence,
         email=email,
     )
+
+
+@then('no user should be registered with email ""')
+def no_user_with_empty_email_should_be_registered(
+    ctx: TestContext,
+    step_registry: StepRegistry,
+) -> None:
+    step_registry.user_registration_assertion_for("is registered")(
+        ctx=ctx,
+        presence="no",
+        email="",
+    )

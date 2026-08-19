@@ -112,13 +112,19 @@ def health():
 )
 def receive_event(
     event: EventIn,
-    _: ApiKey = Depends(
+    api_key: ApiKey = Depends(
         get_current_api_key
     ),
     service: EventIngressService = Depends(
         get_event_ingress_service
     ),
 ):
+    if api_key.project_id != event.project_id:
+        raise HTTPException(
+            status_code=403,
+            detail="API key is not authorized for this project",
+        )
+
     try:
         return service.receive_event(event)
 

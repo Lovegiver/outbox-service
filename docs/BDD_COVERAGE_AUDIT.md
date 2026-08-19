@@ -60,22 +60,25 @@ Couvert :
 - login valide ;
 - rejet de mot de passe invalide ;
 - rejet d'utilisateur inconnu ;
+- rejet du login pour utilisateur inactif ;
+- rejet des formats email invalides et de l'email vide ;
+- normalisation des emails a l'inscription et au login ;
+- unicite des emails insensible a la casse ;
+- validation des bornes et de la complexite des mots de passe ;
 - endpoint d'identite authentifie ;
 - rejet d'identite sans token ;
 - rejet d'identite avec token invalide ;
 - rejet d'identite avec token expire ;
+- rejet d'identite avec signature incorrecte, claim `sub` absent, utilisateur
+  inconnu ou type de token inattendu ;
 - rejet d'identite pour utilisateur inactif.
 
-Scenarios pertinents manquants :
-
-- rejet du login pour utilisateur inactif ;
-- format email invalide ;
-- limites de politique de mot de passe une fois la politique produit definie ;
-- verification email une fois la fonctionnalite implementee.
+La verification email reste rattachee a la fonctionnalite produit future #22 et
+ne fait pas partie du contrat d'authentification actuellement implemente.
 
 ### Authorization Transverse
 
-Partiellement couvert par les autres fichiers de feature, mais il n'existe pas encore de feature transverse dediee a l'autorisation.
+Executable et vert dans une feature transverse dediee.
 
 Couvert indirectement :
 
@@ -87,11 +90,16 @@ Couvert indirectement :
 - effets des permissions OWNER/DEVELOPER/VIEWER sur Projects, EventTypes, Schemas, Routes, API Keys, Metrics et Dead Letters ;
 - cas `403` pour utilisateur non membre ;
 - API key absente, invalide ou revoquee sur l'ingestion d'Events.
+- matrice complete OWNER/DEVELOPER/VIEWER/non-membre/ADMIN sur les permissions
+  Project, EventType, Schema, Route, API Key et Metrics ;
+- contrats `401` pour authentification absente ou invalide et `403` pour un
+  acteur authentifie sans permission ;
+- vocabulaire role-based pour les scenarios metier et permission-based pour
+  les controles transverses.
+- isolation d'une API key lorsqu'elle tente d'ingerer dans un autre Project.
 
-Scenarios pertinents manquants :
-
-- une feature BDD transverse compacte qui prouve la matrice de permissions sans dupliquer chaque feature metier ;
-- documentation explicite du vocabulaire BDD role-based vs permission-based.
+Aucun manque critique immediat n'a ete identifie pour l'autorisation
+transverse.
 
 ### Projects
 
@@ -317,9 +325,9 @@ Scenarios pertinents :
 
 ### Runtime Metrics Dashboard
 
-Aucune feature BDD executable trouvee.
+Executable et vert.
 
-Scenarios pertinents :
+Couvert :
 
 - summary vide sur base vide ;
 - compteur total d'Events ;
@@ -329,7 +337,10 @@ Scenarios pertinents :
 - compteur de retries ;
 - age du plus ancien Event `RECEIVED` ;
 - age de la plus ancienne delivery `PENDING` ;
-- PostgreSQL comme source de verite, independamment des evenements WebSocket live.
+- PostgreSQL comme source de verite, independamment des evenements WebSocket live ;
+- coherence des compteurs apres retry d'une dead letter.
+
+Aucun manque critique immediat n'a ete identifie.
 
 ### YAML Metrics Observatory
 
