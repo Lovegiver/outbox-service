@@ -20,6 +20,12 @@ La MetricDefinition est ce point d'ancrage stable. Les versions YAML viendront e
 - Une MetricDefinition nouvellement créée est active.
 - La création nécessite `METRICS_WRITE`.
 - La lecture nécessite `METRICS_READ`.
+- Une version YAML est immuable et conserve exactement le document soumis.
+- Son numéro interne est attribué par OB1 et augmente strictement dans le
+  périmètre de la MetricDefinition.
+- La version est validée contre une SchemaDefinition du même EventType avant
+  toute persistance.
+- La preview compile le même contrat mais ne persiste aucune configuration.
 
 ## Comportements validés par BDD
 
@@ -30,3 +36,6 @@ La MetricDefinition est ce point d'ancrage stable. Les versions YAML viendront e
 - acceptation du même code sur deux EventTypes différents ;
 - listing des MetricDefinitions d'un EventType ;
 - rejet du listing par un utilisateur hors Project.
+
+Le contrat détaillé des versions, de la validation et de la preview est décrit
+dans [YAML Metrics Observatory](YAML%20Metrics%20Observatory.md).

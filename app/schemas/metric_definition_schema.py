@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MetricDefinitionCreate(BaseModel):
@@ -37,7 +37,7 @@ class MetricDefinitionVersionCreate(BaseModel):
     Request payload used to create a YAML version for a metric definition.
     """
 
-    yaml_version_number: int
+    schema_definition_id: int
     yaml_version_label: Optional[str] = None
     yaml_content: str
 
@@ -88,7 +88,7 @@ class MetricYamlValidationResponse(BaseModel):
     """
 
     valid: bool
-    errors: list[str] = []
+    errors: list[str] = Field(default_factory=list)
 
 
 class MetricYamlPreviewResponse(BaseModel):
@@ -97,5 +97,5 @@ class MetricYamlPreviewResponse(BaseModel):
     """
 
     valid: bool
-    errors: list[str] = []
+    errors: list[str] = Field(default_factory=list)
     compiled_plan_json: Optional[dict] = None

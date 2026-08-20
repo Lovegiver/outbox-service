@@ -291,6 +291,26 @@ moins une livraison.
 - Une réponse sans MetricState est vide.
 - `# TYPE` est émis une seule fois par nom de métrique.
 - La première version expose uniquement des counters finis et non négatifs.
+
+## YAML Metrics Observatory
+
+- Le YAML version `"1.0"` est le contrat déclaratif commun à l'administration
+  et au futur Metric Builder.
+- Le parsing utilise exclusivement un chargeur sûr et exige un objet YAML non
+  vide.
+- La validation cible explicitement une SchemaDefinition appartenant au même
+  EventType que l'opération administrative.
+- OB1 attribue le numéro interne de MetricDefinitionVersion ; le client peut
+  fournir uniquement un label d'affichage optionnel.
+- Une version persiste exactement le YAML soumis et n'est jamais modifiée
+  rétroactivement.
+- Preview et création partagent le même parser, validateur et compilateur.
+- Une preview ne persiste ni version, ni compatibilité, ni chaîne, ni plan.
+- Une création invalide est rejetée avant toute écriture ; une erreur de
+  persistance annule la transaction.
+- La preview compile un plan déterministe, mais seule une future ProcessingChain
+  explicitement construite et activée pourra rendre ce plan exécutable.
+- Le runtime ne relit et ne recompile jamais le YAML.
 - Le format HTTP est `text/plain; version=0.0.4; charset=utf-8`.
 - Une cardinalité jugée forte par le Metric Builder provoque un rejet, pas un
   simple warning.

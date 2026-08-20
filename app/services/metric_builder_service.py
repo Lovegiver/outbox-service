@@ -248,6 +248,11 @@ class MetricBuilderService:
         if not preview.valid or preview.yaml_content is None:
             raise ValueError("Metric builder preview is invalid: " + "; ".join(preview.errors))
 
+        schema_definition = self._resolve_schema_definition(
+            event_type_id=event_type_id,
+            schema_definition_id=schema_definition_id,
+        )
+
         metric_definition = self.metric_definition_admin_service.create_metric_definition(
             event_type_id=event_type_id,
             code=code,
@@ -257,8 +262,9 @@ class MetricBuilderService:
 
         metric_definition_version = (
             self.metric_definition_admin_service.create_metric_definition_version(
+                event_type_id=event_type_id,
                 metric_definition_id=metric_definition.id,
-                yaml_version_number=1,
+                schema_definition_id=schema_definition.id,
                 yaml_version_label=yaml_version_label,
                 yaml_content=preview.yaml_content,
             )
