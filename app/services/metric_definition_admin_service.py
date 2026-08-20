@@ -103,10 +103,9 @@ class MetricDefinitionAdminService:
         yaml_content: str,
     ) -> MetricDefinitionVersion:
         """Validate and persist the next immutable YAML version atomically."""
-        metric_definition = self._get_metric_definition(
+        self._get_metric_definition(
             event_type_id=event_type_id,
             metric_definition_id=metric_definition_id,
-            for_update=True,
         )
         schema_definition = self._get_schema_definition(
             event_type_id=event_type_id,
@@ -116,20 +115,24 @@ class MetricDefinitionAdminService:
             yaml_content=yaml_content,
             json_schema=schema_definition.json_schema,
         )
-        yaml_version_number = (
-            self.metric_definition_version_repository.find_next_version_number(
-                metric_definition.id
-            )
-        )
-        version = MetricDefinitionVersion(
-            metric_definition_id=metric_definition.id,
-            yaml_version_number=yaml_version_number,
-            yaml_version_label=yaml_version_label,
-            yaml_content=yaml_content,
-            is_active=True,
-        )
 
         try:
+            metric_definition = self._get_metric_definition(
+                event_type_id=event_type_id,
+                metric_definition_id=metric_definition_id,
+                for_update=True,
+            )
+            yaml_version_number = (
+                self.metric_definition_version_repository
+                .find_next_version_number(metric_definition.id)
+            )
+            version = MetricDefinitionVersion(
+                metric_definition_id=metric_definition.id,
+                yaml_version_number=yaml_version_number,
+                yaml_version_label=yaml_version_label,
+                yaml_content=yaml_content,
+                is_active=True,
+            )
             self.metric_definition_version_repository.add(version)
             self.db.commit()
             self.db.refresh(version)

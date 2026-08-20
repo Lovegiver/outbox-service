@@ -63,12 +63,21 @@ class FakeMetricDefinitionRepository:
 
 
 class FakeMetricDefinitionVersionRepository:
-    def __init__(self, next_version: int = 1, fail_add: bool = False) -> None:
+    def __init__(
+        self,
+        next_version: int = 1,
+        fail_add: bool = False,
+        fail_next_attempts: int = 0,
+    ) -> None:
         self.next_version = next_version
         self.fail_add = fail_add
+        self.fail_next_attempts = fail_next_attempts
         self.added: list[MetricDefinitionVersion] = []
 
     def find_next_version_number(self, _metric_definition_id: int) -> int:
+        if self.fail_next_attempts > 0:
+            self.fail_next_attempts -= 1
+            raise RuntimeError("version lookup failed after lock")
         return self.next_version
 
     def add(self, version: MetricDefinitionVersion) -> MetricDefinitionVersion:
@@ -121,12 +130,14 @@ def _service(
     schema_definition: SchemaDefinition | None = None,
     next_version: int = 1,
     fail_add: bool = False,
+    fail_next_attempts: int = 0,
 ):
     session = FakeSession()
     definition_repository = FakeMetricDefinitionRepository(metric_definition)
     version_repository = FakeMetricDefinitionVersionRepository(
         next_version=next_version,
         fail_add=fail_add,
+        fail_next_attempts=fail_next_attempts,
     )
     service = MetricDefinitionAdminService(
         db=session,  # type: ignore[arg-type]
@@ -186,14 +197,14 @@ def test_create_assigns_next_version_and_preserves_yaml() -> None:
 
     assert created.yaml_version_number == 3
     assert created.yaml_content == VALID_YAML
-    assert definitions.lock_requests == [True]
+    assert definitions.lock_requests == [False, True]
     assert versions.added == [created]
     assert session.commits == 1
     assert session.refreshed == [created]
 
 
-def test_invalid_creation_has_no_partial_version() -> None:
-    service, session, _, versions = _service(
+def test_invalid_creation_stops_before_lock_without_partial_version() -> None:
+    service, session, definitions, versions = _service(
         metric_definition=_metric_definition(),
         schema_definition=_schema_definition(),
     )
@@ -208,12 +219,34 @@ def test_invalid_creation_has_no_partial_version() -> None:
         )
 
     assert versions.added == []
+    assert definitions.lock_requests == [False]
     assert session.commits == 0
-    assert session.rollbacks == 0
+
+
+def test_failure_after_lock_rolls_back_creation() -> None:
+    service, session, definitions, versions = _service(
+        metric_definition=_metric_definition(),
+        schema_definition=_schema_definition(),
+        fail_next_attempts=1,
+    )
+
+    with pytest.raises(RuntimeError, match="version lookup failed after lock"):
+        service.create_metric_definition_version(
+            event_type_id=10,
+            metric_definition_id=20,
+            schema_definition_id=30,
+            yaml_version_label=None,
+            yaml_content=VALID_YAML,
+        )
+
+    assert definitions.lock_requests == [False, True]
+    assert versions.added == []
+    assert session.commits == 0
+    assert session.rollbacks == 1
 
 
 def test_database_failure_rolls_back_creation() -> None:
-    service, session, _, _ = _service(
+    service, session, definitions, versions = _service(
         metric_definition=_metric_definition(),
         schema_definition=_schema_definition(),
         fail_add=True,
@@ -228,8 +261,41 @@ def test_database_failure_rolls_back_creation() -> None:
             yaml_content=VALID_YAML,
         )
 
+    assert definitions.lock_requests == [False, True]
+    assert versions.added == []
     assert session.commits == 0
     assert session.rollbacks == 1
+
+
+def test_creation_can_succeed_after_transactional_failure() -> None:
+    service, session, definitions, versions = _service(
+        metric_definition=_metric_definition(),
+        schema_definition=_schema_definition(),
+        fail_next_attempts=1,
+    )
+
+    with pytest.raises(RuntimeError, match="version lookup failed after lock"):
+        service.create_metric_definition_version(
+            event_type_id=10,
+            metric_definition_id=20,
+            schema_definition_id=30,
+            yaml_version_label=None,
+            yaml_content=VALID_YAML,
+        )
+
+    created = service.create_metric_definition_version(
+        event_type_id=10,
+        metric_definition_id=20,
+        schema_definition_id=30,
+        yaml_version_label="recovery",
+        yaml_content=VALID_YAML,
+    )
+
+    assert created.yaml_version_number == 1
+    assert definitions.lock_requests == [False, True, False, True]
+    assert versions.added == [created]
+    assert session.rollbacks == 1
+    assert session.commits == 1
 
 
 def test_unknown_metric_definition_is_explicit() -> None:

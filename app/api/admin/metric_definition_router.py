@@ -122,7 +122,7 @@ def create_metric_definition_version(
         MetricConfigurationScopeError,
     ) as exc:
         _raise_resource_http_error(exc)
-    except (MetricYamlParseError, MetricYamlValidationError, ValueError) as exc:
+    except (MetricYamlParseError, MetricYamlValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except IntegrityError as exc:
         raise HTTPException(
@@ -188,7 +188,7 @@ def validate_metric_yaml_content(
         MetricConfigurationScopeError,
     ) as exc:
         _raise_resource_http_error(exc)
-    except (MetricYamlParseError, MetricYamlValidationError, ValueError) as exc:
+    except (MetricYamlParseError, MetricYamlValidationError) as exc:
         return MetricYamlValidationResponse(
             valid=False,
             errors=[str(exc)],
@@ -228,7 +228,7 @@ def preview_metric_yaml_content(
         MetricConfigurationScopeError,
     ) as exc:
         _raise_resource_http_error(exc)
-    except (MetricYamlParseError, MetricYamlValidationError, ValueError) as exc:
+    except (MetricYamlParseError, MetricYamlValidationError) as exc:
         return MetricYamlPreviewResponse(
             valid=False,
             errors=[str(exc)],
