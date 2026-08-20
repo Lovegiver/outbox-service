@@ -272,12 +272,24 @@ moins une livraison.
 ## Prometheus et MetricState
 
 - Le scrape lit uniquement MetricState et ne déclenche aucun recalcul.
+- Le contrat métier est exposé par Project via
+  `GET /metrics/projects/{project_id}/prometheus-state` et inclut tous ses
+  EventTypes.
+- `ob1_project` contient le nom fonctionnel du Project et `ob1_event_type` le
+  code fonctionnel de l'EventType. Ces labels sont ajoutés uniquement lors de
+  l'exposition et ne participent jamais à `labels_hash`.
+- Le préfixe de labels `ob1_` est réservé à la plateforme ; une dimension
+  métier qui l'utilise est rejetée explicitement.
 - Les noms respectent `[a-zA-Z_:][a-zA-Z0-9_:]*` ; les caractères invalides
-  sont remplacés par `_`.
+  sont remplacés par `_`, puis le préfixe `ob1_` est appliqué une seule fois.
+- Deux codes métier qui convergent vers le même nom après normalisation sont
+  une incohérence explicite et ne sont pas fusionnés silencieusement.
 - Les labels sont triés alphabétiquement.
 - Les antislashs, guillemets et retours à la ligne sont échappés.
 - Une réponse sans MetricState est vide.
 - `# TYPE` est émis une seule fois par nom de métrique.
+- La première version expose uniquement des counters finis et non négatifs.
+- Le format HTTP est `text/plain; version=0.0.4; charset=utf-8`.
 - Une cardinalité jugée forte par le Metric Builder provoque un rejet, pas un
   simple warning.
 

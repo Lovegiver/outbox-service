@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models.analytical_observation import AnalyticalObservation
+from app.models.event_type import EventType
 from app.models.metric_checkpoint import MetricCheckpoint
 from app.models.metric_state import MetricState
 
@@ -53,6 +54,20 @@ class MetricStateDelta:
     metric_code: str
     labels_json: dict[str, Any]
     labels_hash: str
+    value: float
+
+
+@dataclass(frozen=True)
+class PrometheusMetricStateRow:
+    """Joined, read-only representation used by Prometheus exposition."""
+
+    state_id: int
+    project_id: int
+    event_type_id: int
+    event_type_project_id: int
+    event_type_code: str
+    metric_code: str
+    labels_json: object
     value: float
 
 
@@ -249,6 +264,53 @@ class MetricStateRepository:
         )
 
         return list(self.db.execute(statement).scalars().all())
+
+    def find_prometheus_rows_by_project(
+        self,
+        project_id: int,
+    ) -> list[PrometheusMetricStateRow]:
+        """
+        Load all materialized series and platform label data for one Project.
+
+        EventType codes are joined in one query so rendering never triggers
+        lazy relationship loading or N+1 queries. Project existence and its
+        stable name are loaded once by the application service.
+        """
+
+        statement = (
+            select(
+                MetricState.id,
+                MetricState.project_id,
+                MetricState.event_type_id,
+                EventType.project_id,
+                EventType.code,
+                MetricState.metric_code,
+                MetricState.labels_json,
+                MetricState.value,
+            )
+            .join(EventType, EventType.id == MetricState.event_type_id)
+            .where(MetricState.project_id == project_id)
+            .order_by(
+                MetricState.metric_code.asc(),
+                EventType.code.asc(),
+                MetricState.labels_hash.asc(),
+                MetricState.id.asc(),
+            )
+        )
+
+        return [
+            PrometheusMetricStateRow(
+                state_id=int(row[0]),
+                project_id=int(row[1]),
+                event_type_id=int(row[2]),
+                event_type_project_id=int(row[3]),
+                event_type_code=str(row[4]),
+                metric_code=str(row[5]),
+                labels_json=row[6],
+                value=float(row[7]),
+            )
+            for row in self.db.execute(statement).all()
+        ]
 
     def find_all_states(self) -> list[MetricState]:
         """

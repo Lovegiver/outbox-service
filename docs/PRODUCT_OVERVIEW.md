@@ -75,7 +75,7 @@ OB1 contient deux familles de metriques.
 
 Les metriques systeme legacy exposent des compteurs operationnels via `/metrics`, `/metrics/latest` et `/metrics/prometheus`.
 
-Les metriques metier sont definies par EventType. Les MetricDefinitions fournissent le nom metier stable. Les versions YAML decrivent comment extraire les observations depuis les payloads d'Events. La compatibilite schema active des ProcessingChains et ProcessingPlans precompiles. Au runtime, les observations sont persistees, agregees en MetricState, puis exposees au format texte Prometheus via `/metrics/event-types/{event_type_id}/prometheus-state`.
+Les metriques metier sont definies par EventType. Les MetricDefinitions fournissent le nom metier stable. Les versions YAML decrivent comment extraire les observations depuis les payloads d'Events. La compatibilite schema active des ProcessingChains et ProcessingPlans precompiles. Au runtime, les observations sont persistees, agregees en MetricState, puis exposees au format texte Prometheus pour tous les EventTypes d'un Project via `/metrics/projects/{project_id}/prometheus-state`.
 
 ### Metric Builder
 

@@ -396,18 +396,16 @@ Scenarios pertinents :
 
 ### Prometheus Metric State
 
-Aucune feature BDD executable trouvee.
+La feature executable `prometheus_metric_state.feature` couvre 16 scenarios :
 
-Scenarios pertinents :
-
-- exposer uniquement le MetricState materialise ;
-- ne pas recalculer depuis les Events au moment du scrape ;
-- rendre le format counter ;
-- trier les labels ;
-- echapper les guillemets dans les labels ;
-- retourner une reponse vide sans state ;
-- exposer plusieurs series pour un meme metric_code avec labels differents ;
-- emettre `# TYPE` une seule fois par nom de metrique Prometheus.
+- endpoint par Project, cas vide et Project inconnu ;
+- lecture exclusive du MetricState sans recalcul pendant le scrape ;
+- aggregation cumulative, idempotence, checkpoint et atomicite ;
+- series distinctes par dimensions et isolation entre Projects ;
+- exposition de plusieurs EventTypes du meme Project ;
+- labels plateforme, collision reservee, tri et echappement ;
+- nom Prometheus-safe, ordre deterministe et `# TYPE` unique ;
+- contrat `Content-Type` du format texte Prometheus.
 
 ## Synchronisation GitHub Effectuee
 

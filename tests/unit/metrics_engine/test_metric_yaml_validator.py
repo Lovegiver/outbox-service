@@ -112,6 +112,38 @@ def test_validate_metric_yaml_with_array_iteration(json_schema: dict) -> None:
             "does not support value_path type",
         ),
         (
+            "reserved platform label",
+            {
+                "version": "1.0",
+                "observations": [
+                    {
+                        "code": "duration_seconds",
+                        "value_path": "$.payload.duration_seconds",
+                        "labels": {
+                            "ob1_project": "$.payload.title",
+                        },
+                    }
+                ],
+            },
+            "reserved prefix",
+        ),
+        (
+            "invalid Prometheus label name",
+            {
+                "version": "1.0",
+                "observations": [
+                    {
+                        "code": "duration_seconds",
+                        "value_path": "$.payload.duration_seconds",
+                        "labels": {
+                            "sales-region": "$.payload.title",
+                        },
+                    }
+                ],
+            },
+            "valid Prometheus label name",
+        ),
+        (
             "$index without array iteration",
             {
                 "version": "1.0",
