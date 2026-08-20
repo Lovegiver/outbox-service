@@ -871,6 +871,44 @@ class MetricDefinitionVersionProbe(BaseProbe):
             {"metric_definition_id": metric_definition.id},
         )
 
+    def count_by_metric_definition(
+        self,
+        metric_definition: PersistedObject,
+    ) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM outbox.metric_definition_version
+                WHERE metric_definition_id = :metric_definition_id
+                """
+            ),
+            {"metric_definition_id": metric_definition.id},
+        )
+        return int(result.scalar_one())
+
+    def get_by_metric_definition_and_version(
+        self,
+        metric_definition: PersistedObject,
+        yaml_version_number: int,
+    ) -> dict[str, Any]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT yaml_version_number, yaml_version_label,
+                       yaml_content, is_active
+                FROM outbox.metric_definition_version
+                WHERE metric_definition_id = :metric_definition_id
+                  AND yaml_version_number = :yaml_version_number
+                """
+            ),
+            {
+                "metric_definition_id": metric_definition.id,
+                "yaml_version_number": yaml_version_number,
+            },
+        )
+        return dict(result.mappings().one())
+
 
 class MetricDefinitionVersionSchemaProbe(BaseProbe):
     def __init__(self, connection: Connection):

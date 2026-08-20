@@ -2,7 +2,7 @@
 
 ## Date de Verification
 
-2026-08-17
+2026-08-20
 
 ## Resultat Local
 
@@ -15,7 +15,7 @@ Commande executee depuis le repository backend :
 Resultat :
 
 ```text
-107 passed
+240 passed
 ```
 
 Warnings observes :
@@ -40,6 +40,7 @@ Features BDD executables collectees :
 - `features/delivery_worker.feature`
 - `features/dead_letters.feature`
 - `features/metric_definitions.feature`
+- `features/metric_yaml_versions.feature`
 
 Fichier de feature present mais non collecte :
 
@@ -348,7 +349,8 @@ Aucun manque critique immediat n'a ete identifie.
 
 ### YAML Metrics Observatory
 
-Seul le CRUD/listing de base des MetricDefinition est executable et vert.
+Le CRUD/listing de base des MetricDefinition et le lot BDD-015A sont
+exécutables et verts.
 
 Couvert :
 
@@ -359,17 +361,20 @@ Couvert :
 - meme code autorise sur deux EventTypes differents ;
 - listing des MetricDefinitions ;
 - rejet du listing pour non-membre.
+- création d'une version YAML validée contre un schema du même EventType ;
+- attribution interne et concurrente d'un numéro de version monotone ;
+- conservation exacte du YAML et listing de l'historique immuable ;
+- rejet de la syntaxe, des paths et des transforms incompatibles ;
+- acceptation et compilation du caractère optionnel d'un champ ;
+- validation et preview via les interfaces publiques ;
+- contenu fonctionnel et déterministe du plan compilé ;
+- absence de persistance après preview valide ou invalide ;
+- absence de version partielle après création invalide ;
+- permissions, ressources inconnues et isolation entre EventTypes ;
+- absence de création de ProcessingChain ou ProcessingPlan pendant le lot 1.
 
 Scenarios pertinents manquants :
 
-- creer une version YAML ;
-- valider un YAML valide ;
-- retourner `valid=false` pour YAML invalide ;
-- rejeter un path inexistant ;
-- rejeter un transform incompatible ;
-- accepter un champ optionnel compatible ;
-- previsualiser le plan compile ;
-- retourner des erreurs lors d'une preview invalide ;
 - creer une compatibilite YAML/schema ;
 - reconstruire une ProcessingChain lors de la compatibilite ;
 - desactiver l'ancienne ProcessingChain lors de l'activation d'une nouvelle ;
@@ -417,6 +422,11 @@ Les issues BDD GitHub ont ete mises a jour pour refleter l'etat local :
 - BDD-003 a BDD-009 : scenarios listes coches lorsqu'ils sont couverts et verts.
 - BDD-010 Worker / Routing / Deliveries : cycle routing/delivery coche, publication runtime et aggregation MetricState laissees ouvertes.
 - BDD-011 Dead Letters : scenarios listes coches, scenarios deja couverts ajoutes.
-- BDD-012 a BDD-017 : zones majoritairement non couvertes laissees ouvertes, sauf la partie MetricDefinition de base qui recoupe BDD-015.
+- BDD-012 à BDD-017 : les lots finalisés sont synchronisés ; BDD-015B,
+  BDD-015C et BDD-016 restent ouverts après la finalisation de BDD-015A.
 
 Les issues de clarification produit doivent rester ouvertes : elles necessitent des decisions metier ou d'architecture, pas seulement une synchronisation de tests.
+
+BDD-015 est désormais découpée en trois lots : BDD-015A (#60), BDD-015B
+(#61) et BDD-015C (#62). Le lot A est implémenté sur sa branche dédiée ; les
+lots B et C restent ouverts et ordonnés avant BDD-016 (#20).
