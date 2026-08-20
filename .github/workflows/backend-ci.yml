@@ -61,6 +61,16 @@ jobs:
       - name: Compile backend sources and tests
         run: uv run python -m compileall -q app migrations tests
 
+      - name: Create application database schema
+        env:
+          PGPASSWORD: pericard42
+        run: >-
+          psql
+          --host=localhost
+          --username=outbox_user
+          --dbname=outbox_test
+          --command="CREATE SCHEMA IF NOT EXISTS outbox;"
+
       - name: Apply database migrations
         run: uv run alembic upgrade head
 
