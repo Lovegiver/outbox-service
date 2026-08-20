@@ -139,3 +139,15 @@ Feature: Prometheus business metric state
     Then aggregation should fail with "reserved prefix"
     And materialized metric "products_sold_total" in project "atomic-shop" should still have value 5
     And the aggregation checkpoint for project "atomic-shop" event type "product.sold" should not exist
+
+  Scenario: Isolate a failing stream during one worker cycle
+    Given project "stream-isolation-shop" has pending counter observations:
+      | event_type      | metric_code        | value | labels                   |
+      | purchase.valid  | purchases_total    | 4     | {"country":"FR"}       |
+      | purchase.broken | broken_total       | 9     | {"ob1_project":"fake"} |
+    When the worker aggregates every pending metric stream
+    Then materialized metric "purchases_total" in project "stream-isolation-shop" should still have value 4
+    And the aggregation checkpoint for project "stream-isolation-shop" event type "purchase.valid" should equal the last observation
+    And materialized metric "broken_total" in project "stream-isolation-shop" should not exist
+    And the aggregation checkpoint for project "stream-isolation-shop" event type "purchase.broken" should not exist
+    And the worker should report a MetricStateAggregationError for project "stream-isolation-shop" event type "purchase.broken" containing "reserved prefix"

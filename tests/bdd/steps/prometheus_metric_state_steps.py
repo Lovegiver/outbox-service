@@ -7,6 +7,10 @@ from pytest_bdd import given, parsers, then, when
 
 from app.container.service_factory import ServiceFactory
 from app.repositories.metric_state_repository import build_checkpoint_name
+from app.services.metric_state_aggregation_service import (
+    MetricStateAggregationError,
+)
+from app.worker import aggregate_prometheus_metric_state
 from tests.domain.record import (
     AnalyticalObservationRecord,
     EventRecord,
@@ -32,6 +36,7 @@ def _state(ctx: TestContext) -> dict[str, Any]:
             "metric_versions": {},
             "last_observations": {},
             "aggregation_error": None,
+            "aggregation_cycle_result": None,
             "first_response_text": None,
         }
         setattr(ctx, "prometheus_metric_state", state)
@@ -269,11 +274,20 @@ def aggregation_is_attempted_atomically(ctx: TestContext) -> None:
     try:
         service.aggregate_all_streams()
     except Exception as exc:  # The scenario asserts the explicit domain error.
+        assert isinstance(exc, MetricStateAggregationError)
         savepoint.rollback()
         _state(ctx)["aggregation_error"] = exc
         ctx.db_session.expire_all()
     else:
         savepoint.commit()
+
+
+@when("the worker aggregates every pending metric stream")
+def worker_aggregates_every_pending_stream(ctx: TestContext) -> None:
+    _state(ctx)["aggregation_cycle_result"] = (
+        aggregate_prometheus_metric_state(db=ctx.db_session)
+    )
+    ctx.db_session.flush()
 
 
 @when(
@@ -538,3 +552,52 @@ def materialized_metric_value_unchanged(
         project,
         metric_code,
     ) == [expected_value]
+
+
+@then(
+    parsers.parse(
+        'materialized metric "{metric_code}" in project "{project_name}" '
+        "should not exist"
+    )
+)
+def materialized_metric_does_not_exist(
+    ctx: TestContext,
+    metric_code: str,
+    project_name: str,
+) -> None:
+    project = _project(ctx, project_name)
+    assert ctx.probe.metric_state.values_by_project_and_metric_code(
+        project,
+        metric_code,
+    ) == []
+
+
+@then(
+    parsers.parse(
+        'the worker should report a MetricStateAggregationError for project '
+        '"{project_name}" event type "{event_type_code}" containing '
+        '"{message}"'
+    )
+)
+def worker_reports_stream_aggregation_error(
+    ctx: TestContext,
+    project_name: str,
+    event_type_code: str,
+    message: str,
+) -> None:
+    project = _project(ctx, project_name)
+    event_type = _event_type(ctx, project_name, event_type_code)
+    result = _state(ctx)["aggregation_cycle_result"]
+
+    matching_failures = [
+        failure
+        for failure in result.failures
+        if failure.project_id == project.id
+        and failure.event_type_id == event_type.id
+    ]
+    assert len(matching_failures) == 1
+    assert isinstance(
+        matching_failures[0].error,
+        MetricStateAggregationError,
+    )
+    assert message.lower() in str(matching_failures[0].error).lower()

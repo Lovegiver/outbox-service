@@ -97,6 +97,11 @@ class MetricStateAggregationService:
 
         return total_count
 
+    def find_observation_streams(self) -> list[MetricObservationStream]:
+        """Return the independent streams currently awaiting aggregation."""
+
+        return self.metric_state_repository.find_observation_streams()
+
     def aggregate_stream(
         self,
         project_id: int,

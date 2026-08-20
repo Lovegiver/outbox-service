@@ -1,5 +1,6 @@
 import asyncio
 import random
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -15,6 +16,9 @@ from app.runtime.runtime_event import RuntimeEvent
 from app.runtime.runtime_event_bus import runtime_event_bus
 from app.runtime.runtime_event_type import RuntimeEventType
 from app.services.config_service import ConfigService
+from app.services.metric_state_aggregation_service import (
+    MetricStateAggregationError,
+)
 
 """
 Background worker responsible for executing the secondary Outbox pipeline.
@@ -425,21 +429,87 @@ def deliver_pending_deliveries(db: Session | None = None) -> None:
         )
 
 
-def aggregate_prometheus_metric_state() -> None:
+@dataclass(frozen=True)
+class MetricStateAggregationFailure:
+    """Explicit failure reported for one isolated aggregation stream."""
+
+    project_id: int
+    event_type_id: int
+    error: Exception
+
+
+@dataclass(frozen=True)
+class MetricStateAggregationCycleResult:
+    """Observable result of one metric-state worker cycle."""
+
+    aggregated_count: int
+    failures: tuple[MetricStateAggregationFailure, ...]
+
+
+def aggregate_prometheus_metric_state(
+    db: Session | None = None,
+) -> MetricStateAggregationCycleResult:
     """
     Aggregate analytical observations into Prometheus-ready metric state.
 
-    MetricState and MetricCheckpoint are updated within the same database
-    transaction so the aggregation is resilient to worker crashes and avoids
-    both data loss and double counting.
+    Each Project/EventType stream owns an independent transaction boundary.
+    MetricState and MetricCheckpoint for one stream are committed together, or
+    both are rolled back without preventing later valid streams from running.
+
+    Tests may provide a caller-owned Session. In that case, a savepoint provides
+    the same per-stream isolation without committing the test transaction.
     """
 
-    db = SessionLocal()
+    owns_session = db is None
+
+    if db is None:
+        db = SessionLocal()
+
+    aggregated_count = 0
+    failures: list[MetricStateAggregationFailure] = []
 
     try:
         service = ServiceFactory.create_metric_state_aggregation_service(db)
-        aggregated_count = service.aggregate_all_streams(limit_per_stream=1000)
-        db.commit()
+
+        for stream in service.find_observation_streams():
+            try:
+                if owns_session:
+                    stream_count = service.aggregate_stream(
+                        project_id=stream.project_id,
+                        event_type_id=stream.event_type_id,
+                        limit=1000,
+                    )
+                    db.commit()
+                else:
+                    with db.begin_nested():
+                        stream_count = service.aggregate_stream(
+                            project_id=stream.project_id,
+                            event_type_id=stream.event_type_id,
+                            limit=1000,
+                        )
+
+                aggregated_count += stream_count
+
+            except Exception as exc:
+                if owns_session:
+                    db.rollback()
+
+                failures.append(
+                    MetricStateAggregationFailure(
+                        project_id=stream.project_id,
+                        event_type_id=stream.event_type_id,
+                        error=exc,
+                    )
+                )
+                message = (
+                    f"[OB1-worker] metric_state stream aggregation error "
+                    f"project_id={stream.project_id} "
+                    f"event_type_id={stream.event_type_id} error={exc}"
+                )
+                if isinstance(exc, MetricStateAggregationError):
+                    logger.info(message)
+                else:
+                    logger.exception(message)
 
         if aggregated_count > 0:
             logger.info(
@@ -447,12 +517,25 @@ def aggregate_prometheus_metric_state() -> None:
                 f"observation_count={aggregated_count}"
             )
 
-    except Exception as exc:
-        db.rollback()
-        logger.info(f"[OB1-worker] metric_state aggregation error={exc}")
+    except Exception:
+        if owns_session:
+            db.rollback()
+            logger.exception("[OB1-worker] metric_state aggregation error")
+            return MetricStateAggregationCycleResult(
+                aggregated_count=aggregated_count,
+                failures=tuple(failures),
+            )
+
+        raise
 
     finally:
-        db.close()
+        if owns_session:
+            db.close()
+
+    return MetricStateAggregationCycleResult(
+        aggregated_count=aggregated_count,
+        failures=tuple(failures),
+    )
 
 
 def process_outbox() -> None:

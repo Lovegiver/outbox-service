@@ -396,11 +396,12 @@ Scenarios pertinents :
 
 ### Prometheus Metric State
 
-La feature executable `prometheus_metric_state.feature` couvre 16 scenarios :
+La feature executable `prometheus_metric_state.feature` couvre 17 scenarios :
 
 - endpoint par Project, cas vide et Project inconnu ;
 - lecture exclusive du MetricState sans recalcul pendant le scrape ;
-- aggregation cumulative, idempotence, checkpoint et atomicite ;
+- aggregation cumulative, idempotence, checkpoint, atomicite et isolation
+  transactionnelle des flux pendant un meme cycle worker ;
 - series distinctes par dimensions et isolation entre Projects ;
 - exposition de plusieurs EventTypes du meme Project ;
 - labels plateforme, collision reservee, tri et echappement ;

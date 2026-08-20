@@ -278,10 +278,12 @@ moins une livraison.
 - `ob1_project` contient le nom fonctionnel du Project et `ob1_event_type` le
   code fonctionnel de l'EventType. Ces labels sont ajoutés uniquement lors de
   l'exposition et ne participent jamais à `labels_hash`.
-- Le préfixe de labels `ob1_` est réservé à la plateforme ; une dimension
-  métier qui l'utilise est rejetée explicitement.
+- Le préfixe `ob1_` est réservé aux noms de labels de plateforme ; tout label
+  métier `ob1_*` est rejeté explicitement.
 - Les noms respectent `[a-zA-Z_:][a-zA-Z0-9_:]*` ; les caractères invalides
-  sont remplacés par `_`, puis le préfixe `ob1_` est appliqué une seule fois.
+  sont remplacés par `_`, puis le préfixe de métrique `ob1_` est appliqué une
+  seule fois. Un `metric_code` déjà préfixé par `ob1_` reste accepté et n'est
+  pas préfixé une seconde fois.
 - Deux codes métier qui convergent vers le même nom après normalisation sont
   une incohérence explicite et ne sont pas fusionnés silencieusement.
 - Les labels sont triés alphabétiquement.

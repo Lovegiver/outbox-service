@@ -76,7 +76,7 @@ class MetricStateRepository:
     Repository for Prometheus-ready metric state and aggregation checkpoints.
 
     The repository only performs persistence operations. Transaction boundaries
-    remain owned by the service or worker that orchestrates aggregation.
+    remain owned by the worker/runtime that orchestrates aggregation.
     """
 
     def __init__(self, db: Session) -> None:
@@ -157,25 +157,24 @@ class MetricStateRepository:
             Locked persistent MetricCheckpoint instance.
         """
 
-        statement = (
+        create_statement = (
+            insert(MetricCheckpoint)
+            .values(
+                checkpoint_name=checkpoint_name,
+                last_processed_observation_id=0,
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_metric_checkpoint_name",
+            )
+        )
+        self.db.execute(create_statement)
+
+        lock_statement = (
             select(MetricCheckpoint)
             .where(MetricCheckpoint.checkpoint_name == checkpoint_name)
             .with_for_update()
         )
-
-        checkpoint = self.db.execute(statement).scalar_one_or_none()
-
-        if checkpoint is not None:
-            return checkpoint
-
-        checkpoint = MetricCheckpoint(
-            checkpoint_name=checkpoint_name,
-            last_processed_observation_id=0,
-        )
-        self.db.add(checkpoint)
-        self.db.flush()
-
-        return checkpoint
+        return self.db.execute(lock_statement).scalar_one()
 
     def upsert_delta(self, delta: MetricStateDelta) -> None:
         """
