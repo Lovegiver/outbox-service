@@ -67,7 +67,7 @@ docker compose -f docker-compose.prometheus-test.yml config --quiet
 docker compose -f docker-compose.prometheus-test.yml build --pull --no-cache app
 docker compose -f docker-compose.prometheus-test.yml run --rm --no-deps --entrypoint /bin/promtool prometheus check config /etc/prometheus/prometheus.yml
 docker compose -f docker-compose.prometheus-test.yml up --detach --wait --wait-timeout 120 app worker prometheus
-docker compose -f docker-compose.prometheus-test.yml run --rm verifier
+docker compose -f docker-compose.prometheus-test.yml run --rm --no-deps verifier
 docker compose -f docker-compose.prometheus-test.yml down --volumes --remove-orphans
 ```
 

@@ -117,7 +117,7 @@ jobs:
       - name: Verify first real Prometheus scrape
         env:
           PROMETHEUS_ARTIFACT_DIR: ./.artifacts/prometheus-integration/cycle-1
-        run: docker compose run --rm verifier
+        run: docker compose run --rm --no-deps verifier
 
       - name: Stop first stack and remove volumes
         run: docker compose down --volumes --remove-orphans
@@ -130,7 +130,7 @@ jobs:
       - name: Verify reproducible Prometheus scrape
         env:
           PROMETHEUS_ARTIFACT_DIR: ./.artifacts/prometheus-integration/cycle-2
-        run: docker compose run --rm verifier
+        run: docker compose run --rm --no-deps verifier
 
       - name: Stop second stack and remove volumes
         run: docker compose down --volumes --remove-orphans
