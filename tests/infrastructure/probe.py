@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, Any, Optional
+from typing import Any, Optional
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -992,6 +992,55 @@ class MetricStateProbe(BaseProbe):
             },
         )
 
+    def count_by_project(self, project: PersistedObject) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM outbox.metric_state
+                WHERE project_id = :project_id
+                """
+            ),
+            {"project_id": project.id},
+        )
+        return int(result.scalar_one())
+
+    def values_by_project_and_metric_code(
+        self,
+        project: PersistedObject,
+        metric_code: str,
+    ) -> list[float]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT value
+                FROM outbox.metric_state
+                WHERE project_id = :project_id
+                  AND metric_code = :metric_code
+                ORDER BY labels_hash
+                """
+            ),
+            {
+                "project_id": project.id,
+                "metric_code": metric_code,
+            },
+        )
+        return [float(value) for value in result.scalars().all()]
+
+    def labels_by_project(self, project: PersistedObject) -> list[dict]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT labels_json
+                FROM outbox.metric_state
+                WHERE project_id = :project_id
+                ORDER BY id
+                """
+            ),
+            {"project_id": project.id},
+        )
+        return [dict(labels) for labels in result.scalars().all()]
+
 
 class MetricCheckpointProbe(BaseProbe):
     def __init__(self, connection: Connection):
@@ -1002,6 +1051,19 @@ class MetricCheckpointProbe(BaseProbe):
             "checkpoint_name = :checkpoint_name",
             {"checkpoint_name": checkpoint_name},
         )
+
+    def last_processed_by_name(self, checkpoint_name: str) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT last_processed_observation_id
+                FROM outbox.metric_checkpoint
+                WHERE checkpoint_name = :checkpoint_name
+                """
+            ),
+            {"checkpoint_name": checkpoint_name},
+        )
+        return int(result.scalar_one())
 
 
 class SystemMetricProbe(BaseProbe):

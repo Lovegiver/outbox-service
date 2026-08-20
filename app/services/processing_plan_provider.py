@@ -5,15 +5,18 @@ from app.repositories.processing_chain_repository import ProcessingChainReposito
 from app.repositories.processing_plan_repository import ProcessingPlanRepository
 
 
+class ProcessingPlanConfigurationError(RuntimeError):
+    """Raised when an active ProcessingPlan is not executable as persisted."""
+
+
 class ProcessingPlanProvider:
     """
     Provides runtime-ready analytical processing plans.
 
-    This provider is the boundary between the persisted ProcessingChain /
+    This provider is the boundary between persisted ProcessingChain /
     ProcessingPlan configuration and the runtime metrics extraction engine.
-    In this first implementation, plans are compiled on demand from the database.
-    Later this class can transparently add an in-memory cache without changing
-    MetricsExtractionService.
+    Runtime execution only reads ``compiled_plan_json``. It never rebuilds or
+    recompiles a plan implicitly.
     """
 
     def __init__(
@@ -66,7 +69,9 @@ class ProcessingPlanProvider:
 
         for plan in plans:
             if plan.compiled_plan_json is None:
-                continue
+                raise ProcessingPlanConfigurationError(
+                    f"Active ProcessingPlan {plan.id} has no compiled plan."
+                )
 
             compiled_plans.append(
                 CompiledProcessingPlan(

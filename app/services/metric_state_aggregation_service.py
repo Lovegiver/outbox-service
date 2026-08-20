@@ -7,8 +7,13 @@ from app.repositories.metric_state_repository import (
     build_labels_hash,
 )
 from collections import defaultdict
+import math
 from typing import Protocol, Optional
 
+from app.metrics_engine.prometheus_renderer import (
+    PrometheusRenderingError,
+    normalize_business_labels,
+)
 from app.models.analytical_observation import AnalyticalObservation
 from app.models.metric_checkpoint import MetricCheckpoint
 from app.models.metric_state import MetricState
@@ -45,6 +50,10 @@ class MetricStateRepositoryProtocol(Protocol):
 
     def find_all_states(self) -> list[MetricState]:
         ...
+
+
+class MetricStateAggregationError(ValueError):
+    """Raised when observations cannot form a valid counter state."""
 
 
 class MetricStateAggregationService:
@@ -88,6 +97,11 @@ class MetricStateAggregationService:
 
         return total_count
 
+    def find_observation_streams(self) -> list[MetricObservationStream]:
+        """Return the independent streams currently awaiting aggregation."""
+
+        return self.metric_state_repository.find_observation_streams()
+
     def aggregate_stream(
         self,
         project_id: int,
@@ -123,6 +137,14 @@ class MetricStateAggregationService:
         if not observations:
             return 0
 
+        self._validate_observation_batch(
+            observations=observations,
+            project_id=project_id,
+            event_type_id=event_type_id,
+            checkpoint_observation_id=(
+                checkpoint.last_processed_observation_id
+            ),
+        )
         deltas = self._aggregate_observations(observations)
 
         for delta in deltas:
@@ -182,6 +204,7 @@ class MetricStateAggregationService:
 
         for observation in observations:
             labels = self._normalize_labels(observation.dimensions_json)
+            value = self._normalize_counter_value(observation)
             labels_hash = build_labels_hash(labels)
             key = (
                 observation.project_id,
@@ -190,7 +213,7 @@ class MetricStateAggregationService:
                 labels_hash,
             )
 
-            values[key] += float(observation.value)
+            values[key] += value
 
             if key not in grouped:
                 grouped[key] = MetricStateDelta(
@@ -234,11 +257,56 @@ class MetricStateAggregationService:
             Deterministically ordered string labels.
         """
 
-        if not labels:
-            return {}
+        try:
+            return normalize_business_labels(labels)
+        except PrometheusRenderingError as exc:
+            raise MetricStateAggregationError(str(exc)) from exc
 
-        return {
-            str(key): str(value)
-            for key, value in sorted(labels.items())
-            if value is not None
-        }
+    @staticmethod
+    def _normalize_counter_value(
+        observation: AnalyticalObservation,
+    ) -> float:
+        try:
+            value = float(observation.value)
+        except (TypeError, ValueError) as exc:
+            raise MetricStateAggregationError(
+                f"Observation {observation.id} has a non-numeric counter value."
+            ) from exc
+
+        if not math.isfinite(value):
+            raise MetricStateAggregationError(
+                f"Observation {observation.id} has a non-finite counter value."
+            )
+
+        if value < 0:
+            raise MetricStateAggregationError(
+                f"Observation {observation.id} has a negative counter value."
+            )
+
+        return value
+
+    @staticmethod
+    def _validate_observation_batch(
+        observations: list[AnalyticalObservation],
+        project_id: int,
+        event_type_id: int,
+        checkpoint_observation_id: int,
+    ) -> None:
+        previous_id = checkpoint_observation_id
+
+        for observation in observations:
+            if (
+                observation.project_id != project_id
+                or observation.event_type_id != event_type_id
+            ):
+                raise MetricStateAggregationError(
+                    "Observation batch contains an item outside its "
+                    "Project/EventType stream."
+                )
+
+            if observation.id is None or observation.id <= previous_id:
+                raise MetricStateAggregationError(
+                    "Observation batch is not strictly ordered after its checkpoint."
+                )
+
+            previous_id = observation.id

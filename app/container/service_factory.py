@@ -61,6 +61,9 @@ from app.services.processing_chain_builder_service import (
 from app.services.processing_plan_provider import (
     ProcessingPlanProvider,
 )
+from app.services.prometheus_metric_state_service import (
+    PrometheusMetricStateService,
+)
 from app.services.metric_definition_admin_service import (
     MetricDefinitionAdminService,
 )
@@ -380,5 +383,17 @@ class ServiceFactory:
             Configured MetricStateAggregationService instance.
         """
         return MetricStateAggregationService(
+            metric_state_repository=MetricStateRepository(db),
+        )
+
+    @classmethod
+    def create_prometheus_metric_state_service(
+        cls,
+        db: Session,
+    ) -> PrometheusMetricStateService:
+        """Create the read-only Project Prometheus exposition service."""
+
+        return PrometheusMetricStateService(
+            project_repository=ProjectRepository(db),
             metric_state_repository=MetricStateRepository(db),
         )

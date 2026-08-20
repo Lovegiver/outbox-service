@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models.analytical_observation import AnalyticalObservation
+from app.models.event_type import EventType
 from app.models.metric_checkpoint import MetricCheckpoint
 from app.models.metric_state import MetricState
 
@@ -56,12 +57,26 @@ class MetricStateDelta:
     value: float
 
 
+@dataclass(frozen=True)
+class PrometheusMetricStateRow:
+    """Joined, read-only representation used by Prometheus exposition."""
+
+    state_id: int
+    project_id: int
+    event_type_id: int
+    event_type_project_id: int
+    event_type_code: str
+    metric_code: str
+    labels_json: object
+    value: float
+
+
 class MetricStateRepository:
     """
     Repository for Prometheus-ready metric state and aggregation checkpoints.
 
     The repository only performs persistence operations. Transaction boundaries
-    remain owned by the service or worker that orchestrates aggregation.
+    remain owned by the worker/runtime that orchestrates aggregation.
     """
 
     def __init__(self, db: Session) -> None:
@@ -142,25 +157,24 @@ class MetricStateRepository:
             Locked persistent MetricCheckpoint instance.
         """
 
-        statement = (
+        create_statement = (
+            insert(MetricCheckpoint)
+            .values(
+                checkpoint_name=checkpoint_name,
+                last_processed_observation_id=0,
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_metric_checkpoint_name",
+            )
+        )
+        self.db.execute(create_statement)
+
+        lock_statement = (
             select(MetricCheckpoint)
             .where(MetricCheckpoint.checkpoint_name == checkpoint_name)
             .with_for_update()
         )
-
-        checkpoint = self.db.execute(statement).scalar_one_or_none()
-
-        if checkpoint is not None:
-            return checkpoint
-
-        checkpoint = MetricCheckpoint(
-            checkpoint_name=checkpoint_name,
-            last_processed_observation_id=0,
-        )
-        self.db.add(checkpoint)
-        self.db.flush()
-
-        return checkpoint
+        return self.db.execute(lock_statement).scalar_one()
 
     def upsert_delta(self, delta: MetricStateDelta) -> None:
         """
@@ -249,6 +263,53 @@ class MetricStateRepository:
         )
 
         return list(self.db.execute(statement).scalars().all())
+
+    def find_prometheus_rows_by_project(
+        self,
+        project_id: int,
+    ) -> list[PrometheusMetricStateRow]:
+        """
+        Load all materialized series and platform label data for one Project.
+
+        EventType codes are joined in one query so rendering never triggers
+        lazy relationship loading or N+1 queries. Project existence and its
+        stable name are loaded once by the application service.
+        """
+
+        statement = (
+            select(
+                MetricState.id,
+                MetricState.project_id,
+                MetricState.event_type_id,
+                EventType.project_id,
+                EventType.code,
+                MetricState.metric_code,
+                MetricState.labels_json,
+                MetricState.value,
+            )
+            .join(EventType, EventType.id == MetricState.event_type_id)
+            .where(MetricState.project_id == project_id)
+            .order_by(
+                MetricState.metric_code.asc(),
+                EventType.code.asc(),
+                MetricState.labels_hash.asc(),
+                MetricState.id.asc(),
+            )
+        )
+
+        return [
+            PrometheusMetricStateRow(
+                state_id=int(row[0]),
+                project_id=int(row[1]),
+                event_type_id=int(row[2]),
+                event_type_project_id=int(row[3]),
+                event_type_code=str(row[4]),
+                metric_code=str(row[5]),
+                labels_json=row[6],
+                value=float(row[7]),
+            )
+            for row in self.db.execute(statement).all()
+        ]
 
     def find_all_states(self) -> list[MetricState]:
         """

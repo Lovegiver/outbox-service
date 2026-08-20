@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.metrics_engine.prometheus_renderer import (
+    PrometheusRenderingError,
+    validate_prometheus_business_label_name,
+)
 from app.metrics_engine.schema_graph import build_schema_graph
 from app.metrics_engine.schema_path_resolver import (
     ResolvedPath,
@@ -167,10 +171,12 @@ def _validate_labels(
     validated_labels: dict[str, ResolvedPath | str] = {}
 
     for label_name, label_path in labels.items():
-        if not isinstance(label_name, str) or not label_name:
+        try:
+            label_name = validate_prometheus_business_label_name(label_name)
+        except PrometheusRenderingError as exc:
             raise MetricYamlValidationError(
-                f"Observation '{observation_code}' contains an invalid label name"
-            )
+                f"Observation '{observation_code}' contains an invalid label: {exc}"
+            ) from exc
 
         if label_path == "$index":
             if value_path.iterator_path is None:
