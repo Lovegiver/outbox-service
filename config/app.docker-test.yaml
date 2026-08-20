@@ -1,0 +1,24 @@
+delivery:
+  max_attempts: 3
+  timeout_seconds: 5
+  retry:
+    strategy: exponential
+    initial_delay_seconds: 1
+    max_delay_seconds: 10
+    jitter: false
+  http:
+    require_https: false
+
+worker:
+  interval_seconds: 2
+
+security:
+  jwt:
+    secret_key: "docker-integration-only-secret-key-at-least-32-bytes"
+    algorithm: "HS256"
+    access_token_expire_minutes: 30
+  destination_secrets:
+    provider: environment
+
+database:
+  url: postgresql+psycopg://outbox_docker:outbox_docker@postgres:5432/outbox_prometheus_test
