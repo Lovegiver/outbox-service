@@ -1,0 +1,164 @@
+name: ob1-prometheus-integration
+
+x-ob1-environment: &ob1-environment
+  OUTBOX_ENV: docker-test
+  OUTBOX_JWT_SECRET_KEY: docker-integration-only-secret-key-at-least-32-bytes
+  PYTHONUNBUFFERED: "1"
+
+services:
+  postgres:
+    image: postgres:16.9-bookworm
+    environment:
+      POSTGRES_DB: outbox_prometheus_test
+      POSTGRES_USER: outbox_docker
+      POSTGRES_PASSWORD: outbox_docker
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U outbox_docker -d outbox_prometheus_test
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./tests/docker/prometheus/postgres-init.sql:/docker-entrypoint-initdb.d/001-outbox-schema.sql:ro
+    networks:
+      - prometheus-test
+
+  migrate:
+    image: ob1-prometheus-test:${OB1_IMAGE_TAG:-local}
+    environment: *ob1-environment
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && alembic current
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - prometheus-test
+    restart: "no"
+
+  fixture-loader:
+    image: ob1-prometheus-test:${OB1_IMAGE_TAG:-local}
+    environment: *ob1-environment
+    command:
+      - python
+      - tests/docker/prometheus/prepare_fixtures.py
+      - --targets-file
+      - /prometheus-targets/ob1-projects.json
+      - --fixtures-file
+      - /prometheus-targets/fixtures.json
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - prometheus-targets:/prometheus-targets
+    networks:
+      - prometheus-test
+    restart: "no"
+
+  app:
+    image: ob1-prometheus-test:${OB1_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.prometheus-test
+    environment:
+      <<: *ob1-environment
+      OB1_ENABLE_EMBEDDED_WORKER: "false"
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - prometheus-test
+
+  worker:
+    image: ob1-prometheus-test:${OB1_IMAGE_TAG:-local}
+    environment: *ob1-environment
+    command:
+      - python
+      - -m
+      - app.worker_runner
+    depends_on:
+      fixture-loader:
+        condition: service_completed_successfully
+    networks:
+      - prometheus-test
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    depends_on:
+      app:
+        condition: service_healthy
+      fixture-loader:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - /bin/promtool
+        - query
+        - instant
+        - http://localhost:9090
+        - up
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - ./tests/docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-targets:/etc/prometheus/targets:ro
+      - prometheus-data:/prometheus
+    networks:
+      - prometheus-test
+
+  verifier:
+    image: ob1-prometheus-test:${OB1_IMAGE_TAG:-local}
+    profiles:
+      - verify
+    environment: *ob1-environment
+    command:
+      - python
+      - tests/docker/prometheus/verify_integration.py
+      - --fixtures-file
+      - /prometheus-targets/fixtures.json
+      - --artifact-directory
+      - /artifacts
+    depends_on:
+      app:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+      fixture-loader:
+        condition: service_completed_successfully
+    volumes:
+      - prometheus-targets:/prometheus-targets:ro
+      - ${PROMETHEUS_ARTIFACT_DIR:-./.artifacts/prometheus-integration}:/artifacts
+    networks:
+      - prometheus-test
+
+networks:
+  prometheus-test:
+
+volumes:
+  postgres-data:
+  prometheus-data:
+  prometheus-targets:

@@ -1,0 +1,14 @@
+.git
+.github
+.idea
+.venv
+.artifacts
+__pycache__
+*.pyc
+.env
+.env.*
+!.env.example
+frontend
+dist
+build
+*.egg-info
