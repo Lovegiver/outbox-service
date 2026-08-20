@@ -9,8 +9,50 @@ from app.models.metric_definition_version_schema import MetricDefinitionVersionS
 
 
 class MetricDefinitionVersionRepository:
+    """Persist and load immutable YAML versions without owning transactions."""
+
     def __init__(self, db: Session) -> None:
+        """Initialize the repository with its caller-owned session."""
         self.db = db
+
+    def add(
+        self,
+        metric_definition_version: MetricDefinitionVersion,
+    ) -> MetricDefinitionVersion:
+        """Add a YAML version to the current transaction."""
+        self.db.add(metric_definition_version)
+        self.db.flush()
+        return metric_definition_version
+
+    def list_by_metric_definition(
+        self,
+        metric_definition_id: int,
+    ) -> list[MetricDefinitionVersion]:
+        """Return the complete YAML version history in ascending order."""
+        statement = (
+            select(MetricDefinitionVersion)
+            .where(
+                MetricDefinitionVersion.metric_definition_id
+                == metric_definition_id
+            )
+            .order_by(
+                MetricDefinitionVersion.yaml_version_number.asc(),
+                MetricDefinitionVersion.id.asc(),
+            )
+        )
+
+        return list(self.db.execute(statement).scalars().all())
+
+    def find_next_version_number(self, metric_definition_id: int) -> int:
+        """Return the next internal version number for a locked definition."""
+        statement = select(
+            func.max(MetricDefinitionVersion.yaml_version_number)
+        ).where(
+            MetricDefinitionVersion.metric_definition_id
+            == metric_definition_id
+        )
+        current_max = self.db.execute(statement).scalar_one()
+        return 1 if current_max is None else int(current_max) + 1
 
     def find_latest_compatible_versions(
         self,

@@ -117,7 +117,7 @@ Les tests BDD ne doivent pas utiliser les modeles ORM applicatifs, les repositor
 
 ## Etat Actuel des BDD
 
-Le backend local collecte et passe actuellement 107 scenarios BDD.
+Le backend local collecte et passe actuellement 240 scenarios BDD.
 
 Les zones couvertes par des BDD executables sont :
 
@@ -133,6 +133,8 @@ Les zones couvertes par des BDD executables sont :
 - Delivery Worker ;
 - Dead Letters ;
 - MetricDefinitions de base.
+- versions YAML, validation et preview BDD-015A ;
+- exposition et agrégation Prometheus MetricState BDD-017.
 
 Il existe aussi un fichier de feature Metric Builder, mais il n'est pas collecte par pytest-bdd car aucun module de test ne le charge. Il ne doit donc pas etre compte comme couverture BDD executable.
 

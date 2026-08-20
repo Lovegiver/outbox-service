@@ -53,9 +53,13 @@ class MetricYamlValidationError(ValueError):
 
 
 def validate_metric_yaml(
-    metric_yaml: dict[str, Any],
+    metric_yaml: Any,
     json_schema: dict[str, Any],
 ) -> ValidatedMetricYaml:
+    """Validate a parsed metric YAML document against a JSON Schema."""
+    if not isinstance(metric_yaml, dict):
+        raise MetricYamlValidationError("Metric YAML root must be an object")
+
     version = metric_yaml.get("version")
 
     if version != "1.0":

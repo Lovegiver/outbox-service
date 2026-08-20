@@ -33,6 +33,9 @@ from app.repositories.analytical_observation_repository import (
 from app.repositories.metric_definition_version_repository import (
     MetricDefinitionVersionRepository,
 )
+from app.repositories.metric_definition_repository import (
+    MetricDefinitionRepository,
+)
 from app.repositories.metric_definition_version_schema_repository import (
     MetricDefinitionVersionSchemaRepository,
 )
@@ -67,6 +70,7 @@ from app.services.prometheus_metric_state_service import (
 from app.services.metric_definition_admin_service import (
     MetricDefinitionAdminService,
 )
+from app.services.metric_yaml_service import MetricYamlService
 from app.services.metric_builder_service import (
     MetricBuilderService,
 )
@@ -344,7 +348,15 @@ class ServiceFactory:
         Returns:
             A configured MetricDefinitionAdminService instance.
         """
-        return MetricDefinitionAdminService(db)
+        return MetricDefinitionAdminService(
+            db=db,
+            metric_definition_repository=MetricDefinitionRepository(db),
+            metric_definition_version_repository=(
+                MetricDefinitionVersionRepository(db)
+            ),
+            schema_repository=SchemaRepository(db),
+            metric_yaml_service=MetricYamlService(),
+        )
 
 
     @classmethod
