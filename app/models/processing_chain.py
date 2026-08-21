@@ -4,7 +4,18 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from app.database import Base
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -21,6 +32,13 @@ class ProcessingChain(Base):
             "schema_definition_id",
             "version_number",
             name="uq_processing_chain_scope_version",
+        ),
+        Index(
+            "uq_processing_chain_active_scope",
+            "event_type_id",
+            "schema_definition_id",
+            unique=True,
+            postgresql_where=text("is_active"),
         ),
         {"schema": "outbox"},
     )

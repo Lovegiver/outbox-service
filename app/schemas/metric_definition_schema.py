@@ -73,6 +73,53 @@ class MetricDefinitionVersionSchemaRead(BaseModel):
     }
 
 
+class ProcessingChainRead(BaseModel):
+    """Public administrative representation of an immutable snapshot."""
+
+    id: int
+    event_type_id: int
+    schema_definition_id: int
+    version_number: int
+    status: str
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class SchemaMetricPropagationRequest(BaseModel):
+    """Explicitly identifies the prior schema whose active snapshot is reused."""
+
+    source_schema_definition_id: int
+
+
+class PropagatedMetricResultRead(BaseModel):
+    """Compatibility result for one metric version during schema evolution."""
+
+    metric_definition_id: int
+    metric_definition_version_id: int
+    compatible: bool
+    reason: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class SchemaMetricPropagationResponse(BaseModel):
+    """Complete controlled-propagation report and candidate identity."""
+
+    source_schema_definition_id: int
+    target_schema_definition_id: int
+    evaluated_count: int
+    compatible_count: int
+    incompatible_count: int
+    results: list[PropagatedMetricResultRead]
+    proposed_metric_definition_version_ids: list[int]
+    candidate_processing_chain_id: Optional[int]
+    activation_allowed: bool
+
+    model_config = {"from_attributes": True}
+
+
 class MetricYamlValidationRequest(BaseModel):
     """
     Request payload used to validate or preview a metric YAML against a JSON schema.

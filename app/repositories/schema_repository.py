@@ -14,11 +14,31 @@ class SchemaRepository:
         self.db.refresh(schema_definition)
         return schema_definition
 
-    def find_by_id(self, schema_definition_id: int) -> SchemaDefinition | None:
+    def find_by_id(
+        self,
+        schema_definition_id: int,
+        *,
+        for_update: bool = False,
+    ) -> SchemaDefinition | None:
         stmt = select(SchemaDefinition).where(
             SchemaDefinition.id == schema_definition_id
         )
+        if for_update:
+            stmt = stmt.with_for_update()
         return self.db.execute(stmt).scalar_one_or_none()
+
+    def lock_by_ids(
+        self,
+        schema_definition_ids: list[int],
+    ) -> list[SchemaDefinition]:
+        """Lock schema rows in a deterministic order for orchestration."""
+        statement = (
+            select(SchemaDefinition)
+            .where(SchemaDefinition.id.in_(schema_definition_ids))
+            .order_by(SchemaDefinition.id.asc())
+            .with_for_update()
+        )
+        return list(self.db.execute(statement).scalars().all())
 
     def find_active_by_event_type_and_internal_version(
         self,

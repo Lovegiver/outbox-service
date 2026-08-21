@@ -74,6 +74,9 @@ from app.services.metric_yaml_service import MetricYamlService
 from app.services.metric_builder_service import (
     MetricBuilderService,
 )
+from app.services.schema_metric_propagation_service import (
+    SchemaMetricPropagationService,
+)
 
 
 # Ce fichier construit les objets métier Python
@@ -247,10 +250,10 @@ class ServiceFactory:
             processing_plan_repository=(
                 cls.create_processing_plan_repository(db)
             ),
-            metric_definition_version_repository=(
-                MetricDefinitionVersionRepository(db)
+            compatibility_repository=(
+                MetricDefinitionVersionSchemaRepository(db)
             ),
-            schema_repository=SchemaRepository(db),
+            metric_yaml_service=MetricYamlService(),
         )
 
     @classmethod
@@ -267,6 +270,13 @@ class ServiceFactory:
             processing_chain_repository=(
                 cls.create_processing_chain_repository(db)
             ),
+            processing_plan_repository=(
+                cls.create_processing_plan_repository(db)
+            ),
+            metric_definition_version_repository=(
+                MetricDefinitionVersionRepository(db)
+            ),
+            schema_repository=SchemaRepository(db),
             processing_chain_builder_service=(
                 cls.create_processing_chain_builder_service(db)
             ),
@@ -328,8 +338,29 @@ class ServiceFactory:
             compatibility_repository=MetricDefinitionVersionSchemaRepository(db),
             metric_definition_version_repository=MetricDefinitionVersionRepository(db),
             schema_repository=SchemaRepository(db),
-            processing_chain_activation_service=(
-                cls.create_processing_chain_activation_service(db)
+            metric_yaml_service=MetricYamlService(),
+        )
+
+    @classmethod
+    def create_schema_metric_propagation_service(
+        cls,
+        db: Session,
+    ) -> SchemaMetricPropagationService:
+        """Create controlled schema-evolution compatibility orchestration."""
+        return SchemaMetricPropagationService(
+            db=db,
+            schema_repository=SchemaRepository(db),
+            processing_chain_repository=ProcessingChainRepository(db),
+            processing_plan_repository=ProcessingPlanRepository(db),
+            metric_definition_version_repository=(
+                MetricDefinitionVersionRepository(db)
+            ),
+            compatibility_repository=(
+                MetricDefinitionVersionSchemaRepository(db)
+            ),
+            metric_yaml_service=MetricYamlService(),
+            processing_chain_builder_service=(
+                cls.create_processing_chain_builder_service(db)
             ),
         )
 
