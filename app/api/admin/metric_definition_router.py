@@ -301,10 +301,10 @@ def rebuild_processing_chain(
     ),
     db: Session = Depends(get_db),
 ) -> ProcessingChainRead:
-    """Explicitly rebuild and atomically activate the selected configuration."""
+    """Build or reuse a complete snapshot without changing active state."""
     service = ServiceFactory.create_processing_chain_activation_service(db)
     try:
-        return service.rebuild_and_activate_chain(
+        return service.rebuild_chain(
             event_type_id=event_type_id,
             schema_definition_id=schema_definition_id,
         )

@@ -145,6 +145,16 @@ class ProcessingChainBuilderService:
         status: str = "DRAFT",
     ) -> ProcessingChain:
         """Persist a fully prepared inactive snapshot in the caller transaction."""
+        if status not in {"DRAFT", "INCOMPLETE"}:
+            raise ProcessingChainSelectionError(
+                f"Unsupported inactive ProcessingChain status: {status}"
+            )
+        if not prepared.plans or any(
+            plan.compiled_plan_json is None for plan in prepared.plans
+        ):
+            raise ProcessingChainSelectionError(
+                "A persisted ProcessingChain candidate requires complete plans"
+            )
         chain = self.processing_chain_repository.add(
             ProcessingChain(
                 event_type_id=prepared.event_type_id,
@@ -168,6 +178,22 @@ class ProcessingChainBuilderService:
             ]
         )
         return chain
+
+    def matches_complete_snapshot(
+        self,
+        processing_chain_id: int,
+        prepared: PreparedProcessingChain,
+    ) -> bool:
+        """Return whether a stored chain is a complete copy of ``prepared``."""
+        plans = self.processing_plan_repository.list_by_chain_id(
+            processing_chain_id
+        )
+        if not plans or any(
+            not plan.is_active or plan.compiled_plan_json is None
+            for plan in plans
+        ):
+            return False
+        return self.signature_for_chain(processing_chain_id) == prepared.signature
 
     def signature_for_chain(
         self,

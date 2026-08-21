@@ -307,9 +307,9 @@ class SchemaMetricPropagationService:
             )
             if chain.status not in reusable_statuses:
                 continue
-            if (
-                self.processing_chain_builder_service.signature_for_chain(chain.id)
-                == prepared.signature
+            if self.processing_chain_builder_service.matches_complete_snapshot(
+                chain.id,
+                prepared,
             ):
                 return chain
         return None

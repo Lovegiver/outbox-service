@@ -1,4 +1,4 @@
-"""Transactional construction and activation of metric processing snapshots."""
+"""Transactional construction and explicit activation of metric snapshots."""
 
 from __future__ import annotations
 
@@ -50,20 +50,21 @@ class ProcessingChainActivationService:
         self.schema_repository = schema_repository
         self.processing_chain_builder_service = processing_chain_builder_service
 
-    def rebuild_and_activate_chain(
+    def rebuild_chain(
         self,
         event_type_id: int,
         schema_definition_id: int,
     ) -> ProcessingChain:
-        """Explicitly rebuild and atomically activate the selected snapshot."""
-        schema_definition = self.schema_repository.find_by_id(schema_definition_id)
-        self._validate_schema_scope(
-            schema_definition=schema_definition,
-            event_type_id=event_type_id,
-            schema_definition_id=schema_definition_id,
-        )
-
+        """Build or reuse a complete candidate without changing runtime state."""
         try:
+            schema_definition = self.schema_repository.find_by_id(
+                schema_definition_id
+            )
+            self._validate_schema_scope(
+                schema_definition=schema_definition,
+                event_type_id=event_type_id,
+                schema_definition_id=schema_definition_id,
+            )
             locked_schema = self.schema_repository.find_by_id(
                 schema_definition_id,
                 for_update=True,
@@ -93,6 +94,15 @@ class ProcessingChainActivationService:
                 self.db.commit()
                 return current_active
 
+            existing_draft = self._find_equivalent_draft(
+                event_type_id=event_type_id,
+                schema_definition_id=schema_definition_id,
+                prepared=prepared,
+            )
+            if existing_draft is not None:
+                self.db.commit()
+                return existing_draft
+
             chain = self.processing_chain_builder_service.persist_chain(
                 prepared=prepared,
                 version_number=(
@@ -102,14 +112,13 @@ class ProcessingChainActivationService:
                     )
                 ),
             )
-            self._activate_locked(chain, current_active=current_active)
             self.db.commit()
             self.db.refresh(chain)
             return chain
         except IntegrityError as exc:
             self.db.rollback()
             raise ProcessingChainConflictError(
-                "ProcessingChain activation conflicted with another transaction"
+                "ProcessingChain rebuild conflicted with another transaction"
             ) from exc
         except Exception:
             self.db.rollback()
@@ -146,10 +155,11 @@ class ProcessingChainActivationService:
                 raise MetricConfigurationScopeError(
                     "ProcessingChain belongs to another EventType or schema"
                 )
-            if chain.is_active and chain.status == "ACTIVE":
-                self.db.commit()
-                return chain
-            if chain.status != "DRAFT":
+            if chain.is_active != (chain.status == "ACTIVE"):
+                raise ProcessingChainIncompleteError(
+                    f"ProcessingChain {chain.id} has inconsistent lifecycle state"
+                )
+            if not chain.is_active and chain.status != "DRAFT":
                 raise ProcessingChainIncompleteError(
                     f"ProcessingChain {chain.id} is not an activatable DRAFT"
                 )
@@ -178,13 +188,17 @@ class ProcessingChainActivationService:
                     metric_definition_versions=metric_versions,
                 )
             )
-            if (
-                self.processing_chain_builder_service.signature_for_chain(chain.id)
-                != canonical_snapshot.signature
+            if not self.processing_chain_builder_service.matches_complete_snapshot(
+                chain.id,
+                canonical_snapshot,
             ):
                 raise ProcessingChainIncompleteError(
                     f"ProcessingChain {chain.id} does not match its canonical plans"
                 )
+
+            if chain.is_active:
+                self.db.commit()
+                return chain
 
             current_active = self.processing_chain_repository.find_active(
                 event_type_id=event_type_id,
@@ -233,20 +247,30 @@ class ProcessingChainActivationService:
         """Return whether an explicit rebuild is functionally idempotent."""
         if current_active is None:
             return False
-        current_plans = self.processing_plan_repository.list_by_chain_id(
-            current_active.id
+        return self.processing_chain_builder_service.matches_complete_snapshot(
+            current_active.id,
+            prepared,
         )
-        if not current_plans or any(
-            not plan.is_active or plan.compiled_plan_json is None
-            for plan in current_plans
+
+    def _find_equivalent_draft(
+        self,
+        event_type_id: int,
+        schema_definition_id: int,
+        prepared: PreparedProcessingChain,
+    ) -> ProcessingChain | None:
+        """Reuse only a technically complete DRAFT with the same snapshot."""
+        for chain in self.processing_chain_repository.list_by_scope(
+            event_type_id=event_type_id,
+            schema_definition_id=schema_definition_id,
         ):
-            return False
-        return (
-            self.processing_chain_builder_service.signature_for_chain(
-                current_active.id
-            )
-            == prepared.signature
-        )
+            if chain.status != "DRAFT" or chain.is_active:
+                continue
+            if self.processing_chain_builder_service.matches_complete_snapshot(
+                chain.id,
+                prepared,
+            ):
+                return chain
+        return None
 
     @staticmethod
     def _validate_schema_scope(
