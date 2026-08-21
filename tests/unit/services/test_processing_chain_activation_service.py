@@ -58,6 +58,9 @@ class Versions:
     def find_latest_compatible_versions(self, **_kwargs):
         return self.values
 
+    def find_by_ids(self, _ids):
+        return self.values
+
 
 class Chains:
     def __init__(self, active=None, candidate=None):
@@ -274,3 +277,21 @@ def test_activate_candidate_replaces_old_scope_only_after_validation() -> None:
     assert active.status == "RETIRED"
     assert active.is_active is False
     assert session.commits == 1
+
+
+def test_activate_candidate_rejects_noncanonical_persisted_plan() -> None:
+    candidate = _chain(100, status="DRAFT")
+    service, session, _, builder = _service(
+        candidate=candidate,
+        plans=[_plan()],
+    )
+    builder.signature_for_chain = lambda _id: ()
+
+    with pytest.raises(
+        ProcessingChainIncompleteError,
+        match="does not match its canonical plans",
+    ):
+        service.activate_chain(7, 30, 100)
+
+    assert candidate.is_active is False
+    assert session.rollbacks == 1

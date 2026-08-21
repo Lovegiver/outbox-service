@@ -162,6 +162,29 @@ class ProcessingChainActivationService:
                 raise ProcessingChainIncompleteError(
                     f"ProcessingChain {chain.id} has incomplete ProcessingPlans"
                 )
+            metric_versions = (
+                self.metric_definition_version_repository.find_by_ids(
+                    [plan.metric_definition_version_id for plan in plans]
+                )
+            )
+            if len(metric_versions) != len(plans):
+                raise ProcessingChainIncompleteError(
+                    f"ProcessingChain {chain.id} references missing metric versions"
+                )
+            canonical_snapshot = (
+                self.processing_chain_builder_service.prepare_chain(
+                    event_type_id=event_type_id,
+                    schema_definition=schema_definition,
+                    metric_definition_versions=metric_versions,
+                )
+            )
+            if (
+                self.processing_chain_builder_service.signature_for_chain(chain.id)
+                != canonical_snapshot.signature
+            ):
+                raise ProcessingChainIncompleteError(
+                    f"ProcessingChain {chain.id} does not match its canonical plans"
+                )
 
             current_active = self.processing_chain_repository.find_active(
                 event_type_id=event_type_id,
