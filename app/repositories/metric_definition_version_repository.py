@@ -125,3 +125,19 @@ class MetricDefinitionVersionRepository:
         )
 
         return self.db.execute(statement).scalar_one_or_none()
+
+    def find_by_ids(
+        self,
+        metric_definition_version_ids: list[int],
+    ) -> list[MetricDefinitionVersion]:
+        """Return requested versions in deterministic definition/version order."""
+        statement = (
+            select(MetricDefinitionVersion)
+            .where(MetricDefinitionVersion.id.in_(metric_definition_version_ids))
+            .order_by(
+                MetricDefinitionVersion.metric_definition_id.asc(),
+                MetricDefinitionVersion.yaml_version_number.asc(),
+                MetricDefinitionVersion.id.asc(),
+            )
+        )
+        return list(self.db.execute(statement).scalars().all())

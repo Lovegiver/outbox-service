@@ -66,3 +66,20 @@ class MetricDefinitionVersionSchemaRepository:
         )
 
         return self.db.execute(statement).scalar_one_or_none()
+
+    def list_by_schema(
+        self,
+        schema_definition_id: int,
+    ) -> list[MetricDefinitionVersionSchema]:
+        """Return compatibility rows in deterministic version order."""
+        statement = (
+            select(MetricDefinitionVersionSchema)
+            .where(
+                MetricDefinitionVersionSchema.schema_definition_id
+                == schema_definition_id
+            )
+            .order_by(
+                MetricDefinitionVersionSchema.metric_definition_version_id.asc()
+            )
+        )
+        return list(self.db.execute(statement).scalars().all())

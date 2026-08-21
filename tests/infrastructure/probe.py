@@ -930,6 +930,27 @@ class MetricDefinitionVersionSchemaProbe(BaseProbe):
             },
         )
 
+    def count_by_version_and_schema(
+        self,
+        metric_definition_version: PersistedObject,
+        schema_definition: PersistedObject,
+    ) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM outbox.metric_definition_version_schema
+                WHERE metric_definition_version_id = :version_id
+                  AND schema_definition_id = :schema_id
+                """
+            ),
+            {
+                "version_id": metric_definition_version.id,
+                "schema_id": schema_definition.id,
+            },
+        )
+        return int(result.scalar_one())
+
 
 class ProcessingChainProbe(BaseProbe):
     def __init__(self, connection: Connection):
@@ -971,6 +992,62 @@ class ProcessingChainProbe(BaseProbe):
             },
         )
 
+    def count_by_scope(
+        self,
+        event_type: PersistedObject,
+        schema_definition: PersistedObject,
+    ) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM outbox.processing_chain
+                WHERE event_type_id = :event_type_id
+                  AND schema_definition_id = :schema_definition_id
+                """
+            ),
+            {
+                "event_type_id": event_type.id,
+                "schema_definition_id": schema_definition.id,
+            },
+        )
+        return int(result.scalar_one())
+
+    def get_active_by_scope(
+        self,
+        event_type: PersistedObject,
+        schema_definition: PersistedObject,
+    ) -> dict[str, Any]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id, version_number, status, is_active
+                FROM outbox.processing_chain
+                WHERE event_type_id = :event_type_id
+                  AND schema_definition_id = :schema_definition_id
+                  AND is_active = true
+                """
+            ),
+            {
+                "event_type_id": event_type.id,
+                "schema_definition_id": schema_definition.id,
+            },
+        )
+        return dict(result.mappings().one())
+
+    def get_by_id(self, processing_chain_id: int) -> dict[str, Any]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id, version_number, status, is_active
+                FROM outbox.processing_chain
+                WHERE id = :processing_chain_id
+                """
+            ),
+            {"processing_chain_id": processing_chain_id},
+        )
+        return dict(result.mappings().one())
+
 
 class ProcessingPlanProbe(BaseProbe):
     def __init__(self, connection: Connection):
@@ -991,6 +1068,24 @@ class ProcessingPlanProbe(BaseProbe):
                 "metric_definition_id": metric_definition.id,
             },
         )
+
+    def list_by_chain_id(self, processing_chain_id: int) -> list[dict[str, Any]]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT metric_definition_id,
+                       metric_definition_version_id,
+                       position,
+                       is_active,
+                       compiled_plan_json
+                FROM outbox.processing_plan
+                WHERE processing_chain_id = :processing_chain_id
+                ORDER BY position, id
+                """
+            ),
+            {"processing_chain_id": processing_chain_id},
+        )
+        return [dict(row) for row in result.mappings().all()]
 
 
 class AnalyticalObservationProbe(BaseProbe):

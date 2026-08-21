@@ -20,10 +20,19 @@ from app.schemas.metric_definition_schema import (
     MetricYamlValidationRequest,
     MetricYamlValidationResponse,
     MetricYamlPreviewResponse,
+    ProcessingChainRead,
+    SchemaMetricPropagationRequest,
+    SchemaMetricPropagationResponse,
 )
 from app.services.metric_definition_admin_service import (
     MetricConfigurationNotFoundError,
     MetricConfigurationScopeError,
+)
+from app.services.processing_chain_errors import (
+    ProcessingChainConflictError,
+    ProcessingChainIncompleteError,
+    ProcessingChainNotFoundError,
+    ProcessingChainSelectionError,
 )
 
 
@@ -38,6 +47,15 @@ def _raise_resource_http_error(exc: ValueError) -> None:
     if isinstance(exc, MetricConfigurationNotFoundError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _raise_processing_http_error(exc: ValueError) -> None:
+    """Translate narrow snapshot administration failures."""
+    if isinstance(exc, ProcessingChainNotFoundError):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, ProcessingChainConflictError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("", response_model=MetricDefinitionRead)
@@ -251,42 +269,117 @@ def create_metric_definition_version_schema_compatibility(
     db: Session = Depends(get_db),
 ):
     """
-    Validate and activate a YAML/schema compatibility.
+    Validate and persist a YAML/schema compatibility.
 
-    This endpoint validates the YAML against the selected JSON schema,
-    persists the compatibility, rebuilds the ProcessingChain, and activates
-    the runtime analytical processing chain.
+    Snapshot rebuild and activation remain explicit separate operations.
     """
     service = ServiceFactory.create_metric_definition_version_schema_service(db)
 
-    return service.create_compatibility(
-        metric_definition_version_id=metric_definition_version_id,
-        schema_definition_id=schema_definition_id,
-    )
+    try:
+        return service.create_compatibility(
+            event_type_id=event_type_id,
+            metric_definition_version_id=metric_definition_version_id,
+            schema_definition_id=schema_definition_id,
+        )
+    except (
+        MetricConfigurationNotFoundError,
+        MetricConfigurationScopeError,
+    ) as exc:
+        _raise_resource_http_error(exc)
+    except (MetricYamlParseError, MetricYamlValidationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 @router.post(
     "/schemas/{schema_definition_id}/processing-chain/rebuild",
+    response_model=ProcessingChainRead,
 )
 def rebuild_processing_chain(
     event_type_id: int,
     schema_definition_id: int,
+    _: UserAccount = Depends(
+        require_event_type_permission(ProjectPermission.METRICS_WRITE)
+    ),
     db: Session = Depends(get_db),
-) -> dict:
+) -> ProcessingChainRead:
+    """Build or reuse a complete snapshot without changing active state."""
     service = ServiceFactory.create_processing_chain_activation_service(db)
+    try:
+        return service.rebuild_chain(
+            event_type_id=event_type_id,
+            schema_definition_id=schema_definition_id,
+        )
+    except (
+        MetricConfigurationNotFoundError,
+        MetricConfigurationScopeError,
+    ) as exc:
+        _raise_resource_http_error(exc)
+    except (
+        ProcessingChainSelectionError,
+        ProcessingChainIncompleteError,
+        ProcessingChainConflictError,
+    ) as exc:
+        _raise_processing_http_error(exc)
 
-    chain = service.rebuild_and_activate_chain(
-        event_type_id=event_type_id,
-        schema_definition_id=schema_definition_id,
-    )
 
-    db.commit()
-    db.refresh(chain)
+@router.post(
+    "/schemas/{target_schema_definition_id}/compatibilities/propagate",
+    response_model=SchemaMetricPropagationResponse,
+)
+def propagate_metric_schema_compatibilities(
+    event_type_id: int,
+    target_schema_definition_id: int,
+    request: SchemaMetricPropagationRequest,
+    _: UserAccount = Depends(
+        require_event_type_permission(ProjectPermission.METRICS_WRITE)
+    ),
+    db: Session = Depends(get_db),
+) -> SchemaMetricPropagationResponse:
+    """Revalidate the prior active snapshot against an explicit new schema."""
+    service = ServiceFactory.create_schema_metric_propagation_service(db)
+    try:
+        return service.propagate(
+            event_type_id=event_type_id,
+            source_schema_definition_id=request.source_schema_definition_id,
+            target_schema_definition_id=target_schema_definition_id,
+        )
+    except (
+        MetricConfigurationNotFoundError,
+        MetricConfigurationScopeError,
+    ) as exc:
+        _raise_resource_http_error(exc)
+    except ProcessingChainSelectionError as exc:
+        _raise_processing_http_error(exc)
 
-    return {
-        "id": chain.id,
-        "event_type_id": chain.event_type_id,
-        "schema_definition_id": chain.schema_definition_id,
-        "version_number": chain.version_number,
-        "status": chain.status,
-        "is_active": chain.is_active,
-    }
+
+@router.post(
+    "/schemas/{schema_definition_id}/processing-chains/{processing_chain_id}/activate",
+    response_model=ProcessingChainRead,
+)
+def activate_processing_chain(
+    event_type_id: int,
+    schema_definition_id: int,
+    processing_chain_id: int,
+    _: UserAccount = Depends(
+        require_event_type_permission(ProjectPermission.METRICS_WRITE)
+    ),
+    db: Session = Depends(get_db),
+) -> ProcessingChainRead:
+    """Atomically activate a complete candidate built for this exact scope."""
+    service = ServiceFactory.create_processing_chain_activation_service(db)
+    try:
+        return service.activate_chain(
+            event_type_id=event_type_id,
+            schema_definition_id=schema_definition_id,
+            processing_chain_id=processing_chain_id,
+        )
+    except (
+        MetricConfigurationNotFoundError,
+        MetricConfigurationScopeError,
+    ) as exc:
+        _raise_resource_http_error(exc)
+    except (
+        ProcessingChainNotFoundError,
+        ProcessingChainIncompleteError,
+        ProcessingChainConflictError,
+    ) as exc:
+        _raise_processing_http_error(exc)
