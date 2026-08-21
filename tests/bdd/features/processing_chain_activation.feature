@@ -87,11 +87,12 @@ Feature: YAML schema compatibility and ProcessingChain activation
     When version "sales-v1" is declared compatible with schema "v1"
     Then no processing snapshot should exist for schema "v1"
 
-  Scenario: Explicit rebuild creates and activates a complete snapshot
+  Scenario: Explicit rebuild creates a complete inactive draft
     Given version "sales-v1" is already compatible with schema "v1"
     When the processing chain is explicitly rebuilt for schema "v1"
     Then the response should have status 200
-    And active processing chain version 1 should exist for schema "v1"
+    And draft processing chain version 1 should exist for schema "v1"
+    And no active processing chain should exist for schema "v1"
     And its compiled plans should reference versions "sales-v1"
     And no AnalyticalObservation should have been produced by configuration
 
@@ -100,25 +101,44 @@ Feature: YAML schema compatibility and ProcessingChain activation
     And version "sales-v1" is already compatible with schema "v1"
     And version "count-v1" is already compatible with schema "v1"
     When the processing chain is explicitly rebuilt for schema "v1"
-    Then active processing chain version 1 should exist for schema "v1"
+    Then draft processing chain version 1 should exist for schema "v1"
     And its compiled plans should reference versions "sales-v1,count-v1"
-    And every plan in the active chain should contain a compiled document
+    And every plan in the candidate chain should contain a compiled document
 
-  Scenario: An identical explicit rebuild reuses the active snapshot
+  Scenario: Explicit activation is the only operation that changes runtime state
     Given version "sales-v1" is already compatible with schema "v1"
     When the processing chain is explicitly rebuilt for schema "v1"
-    And the active chain identity for schema "v1" is remembered
+    And the rebuilt candidate is explicitly activated for schema "v1"
+    Then the response should have status 200
+    And active processing chain version 1 should exist for schema "v1"
+    And only one processing chain should be active for schema "v1"
+
+  Scenario: An identical explicit rebuild reuses the draft snapshot
+    Given version "sales-v1" is already compatible with schema "v1"
+    When the processing chain is explicitly rebuilt for schema "v1"
+    And the rebuilt candidate identity is remembered
     And the processing chain is explicitly rebuilt for schema "v1" again
-    Then the active chain identity for schema "v1" should be unchanged
+    Then the rebuilt candidate identity should be unchanged
+    And exactly 1 processing chain should exist for schema "v1"
+    And no active processing chain should exist for schema "v1"
+
+  Scenario: An identical rebuild reuses the active snapshot
+    Given version "sales-v1" is already compatible with schema "v1"
+    And the processing chain is active for schema "v1"
+    When the active chain identity for schema "v1" is remembered
+    And the processing chain is explicitly rebuilt for schema "v1" again
+    Then the rebuilt candidate identity should equal the active chain identity for schema "v1"
     And exactly 1 processing chain should exist for schema "v1"
 
-  Scenario: A changed snapshot creates a new version and preserves audit history
+  Scenario: A changed rebuild creates a draft and preserves the active snapshot
     Given version "sales-v1" is already compatible with schema "v1"
-    When the processing chain is explicitly rebuilt for schema "v1"
+    And the processing chain is active for schema "v1"
+    When the active chain identity for schema "v1" is remembered
     Given metric YAML version "count-v1" using "valid counter" exists for definition "count" on event type "product.sold" in project "Hermes"
     And version "count-v1" is already compatible with schema "v1"
     When the processing chain is explicitly rebuilt for schema "v1"
-    Then active processing chain version 2 should exist for schema "v1"
+    Then draft processing chain version 2 should exist for schema "v1"
+    And the active chain identity for schema "v1" should be unchanged
     And exactly 2 processing chains should exist for schema "v1"
     And only one processing chain should be active for schema "v1"
 
@@ -126,8 +146,8 @@ Feature: YAML schema compatibility and ProcessingChain activation
     Given metric schema "v2" with shape "complete sales" exists for event type "product.sold" in project "Hermes"
     And version "sales-v1" is already compatible with schema "v1"
     And version "sales-v1" is already compatible with schema "v2"
-    When the processing chain is explicitly rebuilt for schema "v1"
-    And the processing chain is explicitly rebuilt for schema "v2" again
+    When the processing chain is built and activated for schema "v1"
+    And the processing chain is built and activated for schema "v2"
     Then only one processing chain should be active for schema "v1"
     And only one processing chain should be active for schema "v2"
 
@@ -138,7 +158,7 @@ Feature: YAML schema compatibility and ProcessingChain activation
 
   Scenario: Propagate all versions used by the previous active schema
     Given version "sales-v1" is already compatible with schema "v1"
-    And the processing chain has been rebuilt for schema "v1"
+    And the processing chain is active for schema "v1"
     And metric schema "v2" with shape "complete sales" exists for event type "product.sold" in project "Hermes"
     When compatibilities are propagated from schema "v1" to schema "v2"
     Then the propagation should report 1 compatible and 0 incompatible metrics
@@ -151,7 +171,7 @@ Feature: YAML schema compatibility and ProcessingChain activation
     Given metric YAML version "country-v1" using "valid counter" exists for definition "country" on event type "product.sold" in project "Hermes"
     And version "sales-v1" is already compatible with schema "v1"
     And version "country-v1" is already compatible with schema "v1"
-    And the processing chain has been rebuilt for schema "v1"
+    And the processing chain is active for schema "v1"
     And metric schema "v2" with shape "sales without country" exists for event type "product.sold" in project "Hermes"
     When compatibilities are propagated from schema "v1" to schema "v2"
     Then the propagation should report 1 compatible and 1 incompatible metrics
@@ -159,6 +179,7 @@ Feature: YAML schema compatibility and ProcessingChain activation
     And compatibility "sales-v1" to schema "v2" should exist exactly once
     And compatibility "country-v1" to schema "v2" should not exist
     And the propagation candidate should be incomplete and inactive
+    And every plan in the candidate chain should contain a compiled document
     When the propagation candidate is activated for schema "v2"
     Then the response should have status 422
     And no active processing chain should exist for schema "v2"
@@ -171,24 +192,40 @@ Feature: YAML schema compatibility and ProcessingChain activation
 
   Scenario: Repeating propagation is idempotent
     Given version "sales-v1" is already compatible with schema "v1"
-    And the processing chain has been rebuilt for schema "v1"
+    And the processing chain is active for schema "v1"
     And metric schema "v2" with shape "complete sales" exists for event type "product.sold" in project "Hermes"
     When compatibilities are propagated from schema "v1" to schema "v2"
     And compatibilities are propagated from schema "v1" to schema "v2" again
     Then compatibility "sales-v1" to schema "v2" should exist exactly once
     And exactly 1 processing chain should exist for schema "v2"
+    And the repeated propagation should create no additional chain or plan
+
+  Scenario: Failed activation of an incomplete propagation preserves the active target
+    Given metric YAML version "country-v1" using "valid counter" exists for definition "country" on event type "product.sold" in project "Hermes"
+    And metric schema "v2" with shape "sales without country" exists for event type "product.sold" in project "Hermes"
+    And version "sales-v1" is already compatible with schema "v1"
+    And version "country-v1" is already compatible with schema "v1"
+    And version "sales-v1" is already compatible with schema "v2"
+    And the processing chain is active for schema "v1"
+    And the processing chain is active for schema "v2"
+    When the active chain identity for schema "v2" is remembered
+    And compatibilities are propagated from schema "v1" to schema "v2"
+    And the propagation candidate is activated for schema "v2"
+    Then the response should have status 422
+    And the active chain identity for schema "v2" should be unchanged
+    And only one processing chain should be active for schema "v2"
 
   Scenario: Propagation calls out optional-field runtime semantics
     Given metric YAML version "optional-v1" using "optional revenue" exists for definition "optional" on event type "product.sold" in project "Hermes"
     And version "optional-v1" is already compatible with schema "v1"
-    And the processing chain has been rebuilt for schema "v1"
+    And the processing chain is active for schema "v1"
     And metric schema "v2" with shape "optional discount" exists for event type "product.sold" in project "Hermes"
     When compatibilities are propagated from schema "v1" to schema "v2"
     Then the propagation should report an optional-field runtime warning
 
   Scenario: A complete propagated candidate is activated explicitly
     Given version "sales-v1" is already compatible with schema "v1"
-    And the processing chain has been rebuilt for schema "v1"
+    And the processing chain is active for schema "v1"
     And metric schema "v2" with shape "complete sales" exists for event type "product.sold" in project "Hermes"
     When compatibilities are propagated from schema "v1" to schema "v2"
     And the propagation candidate is activated for schema "v2"

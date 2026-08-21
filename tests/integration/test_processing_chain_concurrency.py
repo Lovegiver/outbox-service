@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from uuid import uuid4
@@ -27,6 +28,7 @@ from app.services.processing_chain_activation_service import (
 from app.services.processing_chain_builder_service import (
     ProcessingChainBuilderService,
 )
+from app.services.processing_chain_errors import ProcessingChainIncompleteError
 from app.services.schema_metric_propagation_service import (
     SchemaMetricPropagationService,
 )
@@ -284,7 +286,7 @@ def test_concurrent_changed_rebuilds_get_unique_consecutive_versions() -> None:
         with SessionLocal() as session:
             service = _service(session, version_id)
             barrier.wait(timeout=10)
-            return service.rebuild_and_activate_chain(
+            return service.rebuild_chain(
                 event_type.id, schema.id
             ).version_number
 
@@ -313,7 +315,7 @@ def test_concurrent_changed_rebuilds_get_unique_consecutive_versions() -> None:
 
         assert sorted(created_versions) == [1, 2]
         assert persisted_versions == [1, 2]
-        assert active_count == 1
+        assert active_count == 0
     finally:
         _cleanup(project, event_type, schema, definition)
 
@@ -329,16 +331,17 @@ def test_post_lock_failure_rolls_back_and_releases_schema_lock() -> None:
                     failing_session,
                     version_one.id,
                     fail_after_lock=True,
-                ).rebuild_and_activate_chain(event_type.id, schema.id)
+                ).rebuild_chain(event_type.id, schema.id)
             assert failing_session.in_transaction() is False
 
         with SessionLocal() as recovery_session:
             recovery_session.execute(text("SET LOCAL lock_timeout = '1s'"))
             chain = _service(
                 recovery_session, version_one.id
-            ).rebuild_and_activate_chain(event_type.id, schema.id)
+            ).rebuild_chain(event_type.id, schema.id)
             assert chain.version_number == 1
-            assert chain.is_active is True
+            assert chain.status == "DRAFT"
+            assert chain.is_active is False
 
         with SessionLocal() as verification_session:
             assert verification_session.scalar(
@@ -409,6 +412,107 @@ def test_concurrent_activations_leave_exactly_one_active_chain() -> None:
         assert set(activated_ids) == {candidate.id for candidate in candidates}
         assert sum(row.is_active for row in rows) == 1
         assert sorted(row.status for row in rows) == ["ACTIVE", "RETIRED"]
+    finally:
+        _cleanup(project, event_type, schema, definition)
+
+
+def test_failed_activation_rolls_back_and_releases_scope_lock() -> None:
+    graph = _fixture_graph("activation-recovery")
+    project, event_type, schema, definition, version_one, _ = graph
+    compiled = MetricYamlService().compile(YAML_V1, JSON_SCHEMA).compiled_plan_json
+    with engine.begin() as connection:
+        factory = ObjectFactory(connection)
+        active = factory.processing_chain(
+            ProcessingChainRecord(
+                event_type=event_type,
+                schema_definition=schema,
+                version_number=1,
+                status="ACTIVE",
+                is_active=True,
+            )
+        )
+        factory.processing_plan(
+            ProcessingPlanRecord(
+                processing_chain=active,
+                metric_definition=definition,
+                metric_definition_version=version_one,
+                compiled_plan_json=compiled,
+            )
+        )
+        candidate = factory.processing_chain(
+            ProcessingChainRecord(
+                event_type=event_type,
+                schema_definition=schema,
+                version_number=2,
+            )
+        )
+        broken_plan = factory.processing_plan(
+            ProcessingPlanRecord(
+                processing_chain=candidate,
+                metric_definition=definition,
+                metric_definition_version=version_one,
+                compiled_plan_json=None,
+            )
+        )
+
+    try:
+        with SessionLocal() as failing_session:
+            with pytest.raises(
+                ProcessingChainIncompleteError,
+                match="incomplete ProcessingPlans",
+            ):
+                _service(failing_session, version_one.id).activate_chain(
+                    event_type.id,
+                    schema.id,
+                    candidate.id,
+                )
+            assert failing_session.in_transaction() is False
+
+        with SessionLocal() as verification:
+            current = ProcessingChainRepository(verification).find_active(
+                event_type.id,
+                schema.id,
+            )
+            assert current is not None
+            assert current.id == active.id
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE outbox.processing_plan "
+                    "SET compiled_plan_json = CAST(:compiled AS jsonb) "
+                    "WHERE id = :plan_id"
+                ),
+                {
+                    "compiled": json.dumps(compiled),
+                    "plan_id": broken_plan.id,
+                },
+            )
+
+        with SessionLocal() as recovery_session:
+            recovery_session.execute(text("SET LOCAL lock_timeout = '1s'"))
+            activated = _service(
+                recovery_session,
+                version_one.id,
+            ).activate_chain(event_type.id, schema.id, candidate.id)
+            assert activated.id == candidate.id
+
+        with SessionLocal() as final_session:
+            rows = list(
+                final_session.execute(
+                    select(
+                        ProcessingChain.id,
+                        ProcessingChain.status,
+                        ProcessingChain.is_active,
+                    )
+                    .where(ProcessingChain.schema_definition_id == schema.id)
+                    .order_by(ProcessingChain.version_number)
+                )
+            )
+            assert [(row.status, row.is_active) for row in rows] == [
+                ("RETIRED", False),
+                ("ACTIVE", True),
+            ]
     finally:
         _cleanup(project, event_type, schema, definition)
 

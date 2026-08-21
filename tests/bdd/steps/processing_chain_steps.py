@@ -309,6 +309,9 @@ def _rebuild(ctx: TestContext, schema_name: str) -> None:
         f"{schema.id}/processing-chain/rebuild",
         headers=ctx.request_headers or {},
     )
+    if ctx.last_response.status_code == 200:
+        state["candidate_id"] = ctx.last_response.json()["id"]
+        state["rebuilt_candidate_id"] = state["candidate_id"]
 
 
 @when(parsers.parse('the processing chain is explicitly rebuilt for schema "{schema_name}"'))
@@ -320,6 +323,51 @@ def processing_chain_is_rebuilt(ctx: TestContext, schema_name: str) -> None:
 @given(parsers.parse('the processing chain has been rebuilt for schema "{schema_name}"'))
 def processing_chain_has_been_rebuilt(ctx: TestContext, schema_name: str) -> None:
     _rebuild(ctx, schema_name)
+    assert ctx.last_response.status_code == 200
+
+
+def _activate_candidate(
+    ctx: TestContext,
+    schema_name: str,
+    candidate_id: int,
+) -> None:
+    state = _state(ctx)
+    event_type = _event_type(ctx, "Hermes", "product.sold")
+    schema = state["schemas"][schema_name]
+    ctx.last_response = ctx.client.post(
+        f"/api/admin/event-types/{event_type.id}/metric-definitions/schemas/"
+        f"{schema.id}/processing-chains/{candidate_id}/activate",
+        headers=ctx.request_headers or {},
+    )
+
+
+@given(parsers.parse('the processing chain is active for schema "{schema_name}"'))
+@when(parsers.parse('the processing chain is built and activated for schema "{schema_name}"'))
+def processing_chain_is_built_and_activated(
+    ctx: TestContext,
+    schema_name: str,
+) -> None:
+    _rebuild(ctx, schema_name)
+    assert ctx.last_response.status_code == 200
+    _activate_candidate(ctx, schema_name, _state(ctx)["candidate_id"])
+    assert ctx.last_response.status_code == 200
+
+
+@when(
+    parsers.parse(
+        'the rebuilt candidate is explicitly activated for schema '
+        '"{schema_name}"'
+    )
+)
+def rebuilt_candidate_is_activated(
+    ctx: TestContext,
+    schema_name: str,
+) -> None:
+    _activate_candidate(
+        ctx,
+        schema_name,
+        _state(ctx)["rebuilt_candidate_id"],
+    )
     assert ctx.last_response.status_code == 200
 
 
@@ -353,15 +401,35 @@ def active_chain_version_exists(
     state["last_active_chain_id"] = row["id"]
 
 
+@then(
+    parsers.parse(
+        'draft processing chain version {version_number:d} should exist for '
+        'schema "{schema_name}"'
+    )
+)
+def draft_chain_version_exists(
+    ctx: TestContext,
+    version_number: int,
+    schema_name: str,
+) -> None:
+    state = _state(ctx)
+    row = ctx.probe.processing_chain.get_by_id(state["rebuilt_candidate_id"])
+    assert row["version_number"] == version_number
+    assert row["status"] == "DRAFT"
+    assert row["is_active"] is False
+    state["last_candidate_chain_id"] = row["id"]
+
+
 @then(parsers.parse('its compiled plans should reference versions "{version_names}"'))
 def compiled_plans_reference_versions(
     ctx: TestContext,
     version_names: str,
 ) -> None:
     state = _state(ctx)
-    plans = ctx.probe.processing_plan.list_by_chain_id(
-        state["last_active_chain_id"]
+    chain_id = state.get("last_candidate_chain_id") or state.get(
+        "last_active_chain_id"
     )
+    plans = ctx.probe.processing_plan.list_by_chain_id(chain_id)
     expected = {
         state["versions"][name].id for name in version_names.split(",")
     }
@@ -369,9 +437,12 @@ def compiled_plans_reference_versions(
 
 
 @then("every plan in the active chain should contain a compiled document")
+@then("every plan in the candidate chain should contain a compiled document")
 def every_plan_is_compiled(ctx: TestContext) -> None:
+    state = _state(ctx)
+    chain_id = state.get("candidate_id") or state.get("last_active_chain_id")
     plans = ctx.probe.processing_plan.list_by_chain_id(
-        _state(ctx)["last_active_chain_id"]
+        chain_id
     )
     assert plans
     assert all(
@@ -395,12 +466,39 @@ def remember_active_chain(ctx: TestContext, schema_name: str) -> None:
     state[f"remembered:{schema_name}"] = row["id"]
 
 
+@when("the rebuilt candidate identity is remembered")
+def remember_rebuilt_candidate(ctx: TestContext) -> None:
+    state = _state(ctx)
+    state["remembered_candidate_id"] = state["rebuilt_candidate_id"]
+
+
+@then("the rebuilt candidate identity should be unchanged")
+def rebuilt_candidate_is_unchanged(ctx: TestContext) -> None:
+    state = _state(ctx)
+    assert state["rebuilt_candidate_id"] == state["remembered_candidate_id"]
+
+
+@then(
+    parsers.parse(
+        'the rebuilt candidate identity should equal the active chain identity '
+        'for schema "{schema_name}"'
+    )
+)
+def rebuilt_candidate_equals_active(
+    ctx: TestContext,
+    schema_name: str,
+) -> None:
+    state = _state(ctx)
+    assert state["rebuilt_candidate_id"] == state[f"remembered:{schema_name}"]
+
+
 @then(parsers.parse('the active chain identity for schema "{schema_name}" should be unchanged'))
 def active_chain_is_unchanged(ctx: TestContext, schema_name: str) -> None:
     state = _state(ctx)
+    schema = state["schemas"][schema_name]
     row = ctx.probe.processing_chain.get_active_by_scope(
-        _event_type(ctx, "Hermes", "product.sold"),
-        state["schemas"][schema_name],
+        schema.event_type,
+        schema,
     )
     assert row["id"] == state[f"remembered:{schema_name}"]
 
@@ -418,6 +516,7 @@ def processing_chain_count(ctx: TestContext, count: int, schema_name: str) -> No
 @then(parsers.parse('only one processing chain should be active for schema "{schema_name}"'))
 def only_one_chain_is_active(ctx: TestContext, schema_name: str) -> None:
     state = _state(ctx)
+    schema = state["schemas"][schema_name]
     result = ctx.probe.processing_chain.connection.execute(
         text(
             """
@@ -428,8 +527,8 @@ def only_one_chain_is_active(ctx: TestContext, schema_name: str) -> None:
             """
         ),
         {
-            "event_type_id": _event_type(ctx, "Hermes", "product.sold").id,
-            "schema_id": state["schemas"][schema_name].id,
+            "event_type_id": schema.event_type.id,
+            "schema_id": schema.id,
         },
     )
     assert result.scalar_one() == 1
@@ -450,6 +549,14 @@ def _propagate(ctx: TestContext, source_name: str, target_name: str) -> None:
     event_type = _event_type(ctx, "Hermes", "product.sold")
     source = state["schemas"][source_name]
     target = state["schemas"][target_name]
+    if "propagation" in state:
+        state["counts_before_repeated_propagation"] = {
+            "chains": ctx.probe.processing_chain.count_by_scope(
+                event_type,
+                target,
+            ),
+            "plans": ctx.probe.processing_plan.count(),
+        }
     state["yaml_count_before_propagation"] = (
         ctx.probe.metric_definition_version.count()
     )
@@ -546,15 +653,24 @@ def propagation_reports_optional_warning(ctx: TestContext) -> None:
     assert any("BDD-015C" in warning for warning in warnings)
 
 
+@then("the repeated propagation should create no additional chain or plan")
+def repeated_propagation_creates_nothing(ctx: TestContext) -> None:
+    state = _state(ctx)
+    target = state["schemas"]["v2"]
+    event_type = _event_type(ctx, "Hermes", "product.sold")
+    remembered = state["counts_before_repeated_propagation"]
+    assert ctx.probe.processing_chain.count_by_scope(event_type, target) == remembered[
+        "chains"
+    ]
+    assert ctx.probe.processing_plan.count() == remembered["plans"]
+
+
 @when(parsers.parse('the propagation candidate is activated for schema "{schema_name}"'))
 def activate_propagation_candidate(ctx: TestContext, schema_name: str) -> None:
-    state = _state(ctx)
-    event_type = _event_type(ctx, "Hermes", "product.sold")
-    schema = state["schemas"][schema_name]
-    ctx.last_response = ctx.client.post(
-        f"/api/admin/event-types/{event_type.id}/metric-definitions/schemas/"
-        f"{schema.id}/processing-chains/{state['candidate_id']}/activate",
-        headers=ctx.request_headers or {},
+    _activate_candidate(
+        ctx,
+        schema_name,
+        _state(ctx)["candidate_id"],
     )
 
 

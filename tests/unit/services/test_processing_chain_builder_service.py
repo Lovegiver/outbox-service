@@ -8,6 +8,8 @@ from app.models.metric_definition_version_schema import MetricDefinitionVersionS
 from app.models.schema_definition import SchemaDefinition
 from app.services.metric_yaml_service import MetricYamlService
 from app.services.processing_chain_builder_service import (
+    PreparedProcessingChain,
+    PreparedProcessingPlan,
     ProcessingChainBuilderService,
 )
 from app.services.processing_chain_errors import ProcessingChainSelectionError
@@ -194,3 +196,65 @@ def test_persist_chain_writes_complete_inactive_snapshot() -> None:
     assert len(plans.added) == 1
     assert plans.added[0].compiled_plan_json is not None
     assert builder.signature_for_chain(chain.id) == prepared.signature
+    assert builder.matches_complete_snapshot(chain.id, prepared)
+
+
+def test_persist_chain_accepts_technically_complete_incomplete_candidate() -> None:
+    builder, _, plans = _builder({(20, 30)})
+    prepared = builder.prepare_chain(7, _schema(), [_version(20, 10)])
+
+    chain = builder.persist_chain(
+        prepared,
+        version_number=1,
+        status="INCOMPLETE",
+    )
+
+    assert chain.status == "INCOMPLETE"
+    assert chain.is_active is False
+    assert plans.added[0].compiled_plan_json is not None
+
+
+@pytest.mark.parametrize("status", ["ACTIVE", "RETIRED", "BROKEN"])
+def test_persist_chain_rejects_non_candidate_status(status: str) -> None:
+    builder, chains, plans = _builder({(20, 30)})
+    prepared = builder.prepare_chain(7, _schema(), [_version(20, 10)])
+
+    with pytest.raises(ProcessingChainSelectionError, match="Unsupported"):
+        builder.persist_chain(prepared, version_number=1, status=status)
+
+    assert chains.added == []
+    assert plans.added == []
+
+
+def test_persist_chain_rejects_a_technically_partial_candidate() -> None:
+    builder, chains, plans = _builder(set())
+    prepared = PreparedProcessingChain(
+        event_type_id=7,
+        schema_definition_id=30,
+        plans=(
+            PreparedProcessingPlan(
+                metric_definition_id=10,
+                metric_definition_version_id=20,
+                compiled_plan_json=None,  # type: ignore[arg-type]
+            ),
+        ),
+    )
+
+    with pytest.raises(ProcessingChainSelectionError, match="complete plans"):
+        builder.persist_chain(
+            prepared,
+            version_number=1,
+            status="INCOMPLETE",
+        )
+
+    assert chains.added == []
+    assert plans.added == []
+
+
+def test_complete_snapshot_match_rejects_a_corrupted_stored_plan() -> None:
+    builder, _, plans = _builder({(20, 30)})
+    prepared = builder.prepare_chain(7, _schema(), [_version(20, 10)])
+    chain = builder.persist_chain(prepared, version_number=1)
+    plans.added[0].compiled_plan_json = None
+
+    assert not builder.matches_complete_snapshot(chain.id, prepared)

@@ -63,9 +63,10 @@ class Versions:
 
 
 class Chains:
-    def __init__(self, active=None, candidate=None):
+    def __init__(self, active=None, candidate=None, drafts=None):
         self.active = active
         self.candidate = candidate
+        self.drafts = drafts or ([] if candidate is None else [candidate])
         self.next_version = 1
 
     def find_active(self, **_kwargs):
@@ -79,6 +80,9 @@ class Chains:
             return self.candidate
         return None
 
+    def list_by_scope(self, **_kwargs):
+        return self.drafts
+
 
 class Plans:
     def __init__(self, plans=None):
@@ -89,10 +93,17 @@ class Plans:
 
 
 class Builder:
-    def __init__(self, prepared, persisted=None, fail_persist=False):
+    def __init__(
+        self,
+        prepared,
+        persisted=None,
+        fail_persist=False,
+        matching_ids=None,
+    ):
         self.prepared = prepared
         self.persisted = persisted
         self.fail_persist = fail_persist
+        self.matching_ids = set(matching_ids or [])
         self.persist_calls = 0
 
     def prepare_chain(self, **_kwargs):
@@ -100,6 +111,9 @@ class Builder:
 
     def signature_for_chain(self, _chain_id):
         return self.prepared.signature
+
+    def matches_complete_snapshot(self, chain_id, _prepared):
+        return chain_id in self.matching_ids
 
     def persist_chain(self, **_kwargs):
         self.persist_calls += 1
@@ -157,7 +171,14 @@ def _plan(compiled=COMPILED):
     return value
 
 
-def _service(*, active=None, candidate=None, plans=None, fail_persist=False):
+def _service(
+    *,
+    active=None,
+    candidate=None,
+    plans=None,
+    fail_persist=False,
+    matching_ids=None,
+):
     session = Session()
     schemas = Schemas(_schema())
     chains = Chains(active=active, candidate=candidate)
@@ -165,6 +186,11 @@ def _service(*, active=None, candidate=None, plans=None, fail_persist=False):
         _prepared(),
         persisted=_chain(101, version=2 if active else 1),
         fail_persist=fail_persist,
+        matching_ids=(
+            matching_ids
+            if matching_ids is not None
+            else ([] if candidate is None else [candidate.id])
+        ),
     )
     effective_plans = [_plan()] if active is not None and plans is None else plans
     service = ProcessingChainActivationService(
@@ -178,13 +204,13 @@ def _service(*, active=None, candidate=None, plans=None, fail_persist=False):
     return service, session, schemas, builder
 
 
-def test_first_rebuild_persists_and_activates_complete_snapshot() -> None:
+def test_first_rebuild_persists_inactive_draft_snapshot() -> None:
     service, session, schemas, builder = _service()
 
-    chain = service.rebuild_and_activate_chain(7, 30)
+    chain = service.rebuild_chain(7, 30)
 
-    assert chain.status == "ACTIVE"
-    assert chain.is_active is True
+    assert chain.status == "DRAFT"
+    assert chain.is_active is False
     assert builder.persist_calls == 1
     assert schemas.lock_requests == [False, True]
     assert session.commits == 1
@@ -193,25 +219,57 @@ def test_first_rebuild_persists_and_activates_complete_snapshot() -> None:
 
 def test_identical_rebuild_reuses_active_chain_without_consuming_version() -> None:
     active = _chain(100, status="ACTIVE", active=True)
-    service, session, _, builder = _service(active=active)
+    service, session, _, builder = _service(
+        active=active,
+        matching_ids=[active.id],
+    )
 
-    chain = service.rebuild_and_activate_chain(7, 30)
+    chain = service.rebuild_chain(7, 30)
 
     assert chain is active
     assert builder.persist_calls == 0
     assert session.commits == 1
 
 
-def test_changed_rebuild_retires_old_chain_atomically() -> None:
+def test_identical_rebuild_reuses_complete_draft_without_consuming_version() -> None:
+    draft = _chain(101, status="DRAFT", active=False)
+    service, session, _, builder = _service(
+        candidate=draft,
+        matching_ids=[draft.id],
+    )
+
+    chain = service.rebuild_chain(7, 30)
+
+    assert chain is draft
+    assert builder.persist_calls == 0
+    assert session.commits == 1
+
+
+def test_rebuild_does_not_reuse_matching_incomplete_candidate() -> None:
+    incomplete = _chain(100, status="INCOMPLETE", active=False)
+    service, session, _, builder = _service(
+        candidate=incomplete,
+        matching_ids=[incomplete.id],
+    )
+
+    chain = service.rebuild_chain(7, 30)
+
+    assert chain is not incomplete
+    assert chain.status == "DRAFT"
+    assert builder.persist_calls == 1
+    assert session.commits == 1
+
+
+def test_changed_rebuild_leaves_old_chain_active() -> None:
     active = _chain(100, status="ACTIVE", active=True)
     service, session, _, builder = _service(active=active)
-    builder.signature_for_chain = lambda _id: ()
 
-    new_chain = service.rebuild_and_activate_chain(7, 30)
+    new_chain = service.rebuild_chain(7, 30)
 
-    assert active.status == "RETIRED"
-    assert active.is_active is False
-    assert new_chain.status == "ACTIVE"
+    assert active.status == "ACTIVE"
+    assert active.is_active is True
+    assert new_chain.status == "DRAFT"
+    assert new_chain.is_active is False
     assert session.commits == 1
 
 
@@ -221,10 +279,8 @@ def test_persistence_failure_rolls_back_and_leaves_old_chain_active() -> None:
         active=active,
         fail_persist=True,
     )
-    builder.signature_for_chain = lambda _id: ()
-
     with pytest.raises(RuntimeError, match="plan persistence failed"):
-        service.rebuild_and_activate_chain(7, 30)
+        service.rebuild_chain(7, 30)
 
     assert active.status == "ACTIVE"
     assert active.is_active is True
@@ -244,6 +300,7 @@ def test_activate_candidate_rejects_unknown_chain() -> None:
 @pytest.mark.parametrize(
     ("status", "plans", "message"),
     [
+        ("ACTIVE", [_plan()], "inconsistent lifecycle state"),
         ("INCOMPLETE", [_plan()], "not an activatable DRAFT"),
         ("DRAFT", [], "incomplete ProcessingPlans"),
         ("DRAFT", [_plan(None)], "incomplete ProcessingPlans"),
@@ -285,7 +342,7 @@ def test_activate_candidate_rejects_noncanonical_persisted_plan() -> None:
         candidate=candidate,
         plans=[_plan()],
     )
-    builder.signature_for_chain = lambda _id: ()
+    builder.matching_ids.clear()
 
     with pytest.raises(
         ProcessingChainIncompleteError,
@@ -294,4 +351,41 @@ def test_activate_candidate_rejects_noncanonical_persisted_plan() -> None:
         service.activate_chain(7, 30, 100)
 
     assert candidate.is_active is False
+    assert session.rollbacks == 1
+
+
+def test_activate_already_active_chain_is_idempotent_after_validation() -> None:
+    active = _chain(100, status="ACTIVE", active=True)
+    service, session, _, _ = _service(
+        active=active,
+        candidate=active,
+        plans=[_plan()],
+        matching_ids=[active.id],
+    )
+
+    result = service.activate_chain(7, 30, active.id)
+
+    assert result is active
+    assert active.status == "ACTIVE"
+    assert active.is_active is True
+    assert session.commits == 1
+    assert session.rollbacks == 0
+
+
+def test_activate_rejects_a_noncanonical_already_active_chain() -> None:
+    active = _chain(100, status="ACTIVE", active=True)
+    service, session, _, _ = _service(
+        active=active,
+        candidate=active,
+        plans=[_plan()],
+        matching_ids=[],
+    )
+
+    with pytest.raises(
+        ProcessingChainIncompleteError,
+        match="does not match its canonical plans",
+    ):
+        service.activate_chain(7, 30, active.id)
+
+    assert session.commits == 0
     assert session.rollbacks == 1

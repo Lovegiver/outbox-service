@@ -37,7 +37,13 @@ def db_connection() -> Generator[Connection, None, None]:
 def db_session(
     db_connection: Connection,
 ) -> Generator[Session, None, None]:
-    session = Session(bind=db_connection)
+    # Application services own commit/rollback. A SAVEPOINT keeps those real
+    # transaction boundaries observable without allowing an expected rollback
+    # to discard the BDD fixture graph held by the outer test transaction.
+    session = Session(
+        bind=db_connection,
+        join_transaction_mode="create_savepoint",
+    )
 
     try:
         yield session
@@ -137,4 +143,3 @@ from tests.bdd.registry import StepRegistry, create_step_registry  # noqa: E402
 @pytest.fixture
 def step_registry() -> StepRegistry:
     return create_step_registry()
-
