@@ -147,29 +147,63 @@ La chaîne et tous ses plans constituent un snapshot immutable. Tous les
 version YAML ou une nouvelle compatibilité ne modifie ni ne reconstruit une
 chaîne existante.
 
-Un rebuild dont la signature fonctionnelle est identique à celle de la chaîne
-active est idempotent : la chaîne active est retournée, aucun numéro n'est
-consommé et aucun plan n'est recréé. Un changement de signature crée le numéro
-suivant dans le scope `EventType + SchemaDefinition` et conserve l'ancien
-snapshot pour l'audit.
+Construction et activation sont deux opérations métier distinctes. Un rebuild
+modifié persiste une candidate complète `DRAFT` et ses plans dans une même
+transaction, sans toucher à la chaîne active. Un rebuild dont la signature est
+identique à la chaîne active retourne celle-ci ; s'il correspond à une `DRAFT`
+complète existante, il retourne cette candidate. Dans les deux cas, aucun
+numéro n'est consommé et aucun plan n'est recréé. Une `INCOMPLETE` n'est jamais
+réutilisée comme équivalent d'un snapshot complet : la sélection, les
+compatibilités et la compilation doivent être redémontrées pour produire une
+nouvelle `DRAFT` activable.
+
+La signature fonctionnelle couvre le scope `EventType + SchemaDefinition`,
+l'ensemble normalisé des `MetricDefinitionVersion` et le document compilé
+déterministe, qui porte la version du compilateur. Un changement de signature
+crée le numéro suivant et conserve tous les anciens snapshots pour l'audit.
 
 Construction, numérotation et activation sont sérialisées par verrouillage du
 `SchemaDefinition`, ressource stable du scope. Le service d'orchestration
-possède commit et rollback ; les repositories n'en possèdent aucun. La retraite
-de l'ancienne chaîne et l'activation de la nouvelle appartiennent à la même
+possède commit et rollback ; les repositories n'en possèdent aucun. La seule
+opération qui change le runtime est l'activation explicite. La retraite de
+l'ancienne chaîne et l'activation de la candidate appartiennent à la même
 transaction. Un index unique partiel PostgreSQL garantit en dernier ressort au
 maximum une chaîne `is_active` par scope.
 
-Une chaîne candidate complète est `DRAFT` et peut être activée explicitement :
+Une chaîne candidate `DRAFT` est techniquement et fonctionnellement complète :
+toutes ses versions sont compatibles, tous ses plans sont présents et chaque
+`compiled_plan_json` correspond à la compilation canonique du YAML immutable.
+Elle reste inactive jusqu'à l'appel explicite :
 
 ```text
 POST /api/admin/event-types/{event_type_id}/metric-definitions/
      schemas/{schema_definition_id}/processing-chains/{chain_id}/activate
 ```
 
-Une chaîne sans plan, un plan sans document compilé ou une candidate
-`INCOMPLETE` sont refusés. Aucun cache de ProcessingChain n'est actif : la base
-reste la source de vérité et aucune invalidation anticipée n'est nécessaire.
+Une chaîne `INCOMPLETE` est réservée à la propagation partielle d'un schema.
+Elle contient uniquement la partie compatible et chacun de ses plans présents
+reste techniquement complet. Elle est fonctionnellement réduite par rapport au
+snapshot source et ne peut jamais être activée directement. Corriger, remplacer
+ou exclure explicitement les métriques incompatibles impose un nouveau rebuild
+canonique vers une `DRAFT` ; un simple changement de statut est interdit.
+
+Une transaction interrompue, un plan absent ou sans document compilé, une
+référence cassée ou une erreur technique ne sont jamais représentés par
+`INCOMPLETE` : ils provoquent un rollback intégral. Aucun cache de
+ProcessingChain n'est actif : la base reste la source de vérité et aucune
+invalidation anticipée n'est nécessaire.
+
+Les statuts sont stockés dans la colonne texte existante. Ils ne reposent ni sur
+un enum PostgreSQL ni sur une contrainte `CHECK`, donc aucun changement de
+schema n'est requis pour `DRAFT` et `INCOMPLETE`. Le service contrôle leurs
+transitions, tandis que l'index partiel protège l'unicité active.
+
+| Opération | Construit | Persiste | Modifie la chaîne active |
+| --- | --- | --- | --- |
+| Compatibilité | Non | Association validée | Non |
+| Rebuild | Candidate `DRAFT` éventuelle | Chaîne et plans | Non |
+| Propagation | Candidate `DRAFT` ou `INCOMPLETE` éventuelle | Compatibilités, chaîne et plans | Non |
+| Activation | Non | Statuts transactionnels | Oui |
 
 ## Évolution contrôlée d'un JSON Schema
 
