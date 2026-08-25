@@ -317,6 +317,40 @@ moins une livraison.
 
 ## Paramètres runtime et invariants
 
+### Exécution des métriques compilées
+
+- L'Event utilise uniquement son `schema_definition_id` exact et la chaîne
+  `ACTIVE` de ce scope ; aucun fallback n'est permis.
+- Le premier traitement matérialise durablement le snapshot Event/chaîne et
+  une exécution unique par Event/ProcessingPlan avant la fin du routing.
+- Les plans sont exécutés séparément du routing et de la delivery, avec une
+  transaction par plan et acquisition PostgreSQL `SKIP LOCKED`.
+- Les observations, la réussite du plan et leurs références sont atomiques.
+- Un retry métrique conserve le snapshot initial et ne rejoue aucune delivery.
+- L'identité d'une observation runtime est
+  `Event + ProcessingPlan + observation_key` et est protégée par PostgreSQL.
+- Le runtime ne lit, ne valide et ne compile jamais le YAML.
+- Les transforms exécutables sont `constant`, `identity`, `count`, `length` et
+  `to_number`. Une opération sans exécuteur est refusée avant activation.
+- Un `value_path` optionnel absent ne produit aucune observation.
+- Un label optionnel absent reste un `null` structurel dans
+  `AnalyticalObservation` et `MetricState`. Aucune valeur métier n'est réservée :
+  `"__missing__"` et la chaîne vide restent des données ordinaires distinctes en
+  base.
+- À l'exposition Prometheus, les labels `null` ou vides sont omis. Les
+  partitions internes convergeant vers la même identité Prometheus sont
+  additionnées sans modifier les `MetricState`. Cette coalescence repose
+  exclusivement sur la sémantique additive des Counters actuellement pris en
+  charge ; Gauge et Histogram devront définir leur propre projection.
+- `RUNNING` n'est jamais committé seul : verrou, tentative, observations et
+  résultat appartiennent à la même transaction de plan. Une interruption avant
+  commit restaure donc `PENDING` ou `RETRYABLE` et libère le verrou PostgreSQL.
+- Une incohérence active est enregistrée durablement ; elle n'est jamais
+  réparée par fallback, recompilation ou rebuild implicite.
+
+Les paramètres de batch, nombre maximal de tentatives et backoff des métriques
+appartiennent à `metrics.execution` dans les profils runtime.
+
 Les fichiers existants `config/app.dev.yaml`, `config/app.test.yaml` et
 `config/app.prod.yaml` sont le bon emplacement pour les paramètres variant par
 environnement :
