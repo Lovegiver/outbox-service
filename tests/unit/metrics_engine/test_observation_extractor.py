@@ -5,8 +5,128 @@ from app.metrics_engine.observation import Observation
 from app.metrics_engine.observation_extractor import (
     ExtractionLimits,
     ObservationExtractionError,
+    extract_keyed_observations_from_compiled_plan,
     extract_observations,
 )
+
+
+def compiled_observation(
+    *,
+    transform: str,
+    path: str = "",
+    required: bool = True,
+    json_type: str = "constant",
+    labels: list[dict] | None = None,
+) -> dict:
+    return {
+        "compiler_version": "1.0",
+        "yaml_version": "1.0",
+        "observations": [
+            {
+                "metric_code": "runtime_total",
+                "transform": transform,
+                "value": {
+                    "path": path,
+                    "json_type": json_type,
+                    "required": required,
+                    "iterator_path": None,
+                },
+                "labels": labels or [],
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("transform", "path", "payload", "expected"),
+    [
+        ("constant", "", {}, 1.0),
+        ("identity", "$.amount", {"amount": 2.5}, 2.5),
+        ("count", "$.items", {"items": [1, 2, 3]}, 3.0),
+        ("length", "$.name", {"name": "abc"}, 3.0),
+        ("to_number", "$.active", {"active": True}, 1.0),
+    ],
+)
+def test_compiled_runtime_executes_every_activable_transform(
+    transform: str,
+    path: str,
+    payload: dict,
+    expected: float,
+) -> None:
+    result = extract_keyed_observations_from_compiled_plan(
+        payload,
+        compiled_observation(transform=transform, path=path),
+    )
+
+    assert result[0].observation.value == expected
+    assert result[0].observation_key == "observation:0:occurrence:0"
+
+
+def test_optional_missing_value_skips_only_its_observation() -> None:
+    result = extract_keyed_observations_from_compiled_plan(
+        {},
+        compiled_observation(
+            transform="identity",
+            path="$.optional_amount",
+            required=False,
+            json_type="number",
+        ),
+    )
+
+    assert result == []
+
+
+def test_optional_missing_label_is_structurally_null() -> None:
+    result = extract_keyed_observations_from_compiled_plan(
+        {},
+        compiled_observation(
+            transform="constant",
+            labels=[
+                {
+                    "name": "country",
+                    "kind": "path",
+                    "path": "$.country",
+                    "json_type": "string",
+                    "required": False,
+                    "iterator_path": None,
+                }
+            ],
+        ),
+    )
+
+    assert result[0].observation.dimensions == {"country": None}
+
+
+def test_literal_missing_value_is_an_ordinary_business_label() -> None:
+    result = extract_keyed_observations_from_compiled_plan(
+        {"country": "__missing__"},
+        compiled_observation(
+            transform="constant",
+            labels=[
+                {
+                    "name": "country",
+                    "kind": "path",
+                    "path": "$.country",
+                    "json_type": "string",
+                    "required": False,
+                    "iterator_path": None,
+                }
+            ],
+        ),
+    )
+
+    assert result[0].observation.dimensions == {"country": "__missing__"}
+
+
+def test_compiled_runtime_rejects_unknown_operation_and_incomplete_document() -> None:
+    with pytest.raises(ObservationExtractionError, match="unsupported runtime"):
+        extract_keyed_observations_from_compiled_plan(
+            {"value": 1},
+            compiled_observation(transform="unknown", path="$.value"),
+        )
+
+    with pytest.raises(ObservationExtractionError, match="compiler version"):
+        extract_keyed_observations_from_compiled_plan({}, {"observations": []})
 
 
 def test_extract_single_numeric_observation() -> None:
@@ -57,6 +177,7 @@ def test_extract_single_numeric_observation() -> None:
     assert observation.metric_code == "duration_seconds"
     assert observation.value == 42.0
     assert observation.dimensions == {}
+
 
 def test_extract_array_observations_with_dimensions() -> None:
     json_schema = {
@@ -152,6 +273,7 @@ def test_extract_array_observations_with_dimensions() -> None:
             },
         ),
     ]
+
 
 def test_reject_when_matches_exceed_observation_limit() -> None:
     json_schema = {

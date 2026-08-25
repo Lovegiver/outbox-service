@@ -1,9 +1,11 @@
 import pytest
 
 from app.metrics_engine.metric_yaml_validator import (
+    TRANSFORM_ALLOWED_TYPES,
     MetricYamlValidationError,
     validate_metric_yaml,
 )
+from app.services.metric_builder_service import MetricBuilderService
 
 
 @pytest.fixture
@@ -225,9 +227,7 @@ def test_reject_invalid_metric_yaml(
         (
             {
                 "version": "1.0",
-                "observations": [
-                    {"code": "metric", "transform": "median"}
-                ],
+                "observations": [{"code": "metric", "transform": "median"}],
             },
             "uses unsupported transform 'median'",
         ),
@@ -320,3 +320,44 @@ def test_default_identity_transform_accepts_optional_numeric_field(
     observation = validated.observations[0]
     assert observation.transform == "identity"
     assert observation.value_path.required is False
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        "unique_count",
+        "occurrence_count",
+        "occurrence",
+        "timestamp",
+        "hour_of_day",
+        "day_of_week",
+        "sum",
+        "avg",
+        "min",
+        "max",
+    ],
+)
+def test_reject_transform_without_a_runtime_executor(transform: str) -> None:
+    with pytest.raises(MetricYamlValidationError, match="unsupported transform"):
+        validate_metric_yaml(
+            {
+                "version": "1.0",
+                "observations": [
+                    {
+                        "code": "metric",
+                        "transform": transform,
+                        "value_path": "$.value",
+                    }
+                ],
+            },
+            {
+                "type": "object",
+                "properties": {"value": {"type": "number"}},
+            },
+        )
+
+
+def test_builder_intents_only_generate_executable_transforms() -> None:
+    assert set(MetricBuilderService.INTENT_TO_TRANSFORM.values()) == set(
+        TRANSFORM_ALLOWED_TYPES
+    )

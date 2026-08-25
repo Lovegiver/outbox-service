@@ -31,6 +31,13 @@ class BaseProbe:
         )
         return int(result.scalar_one())
 
+    def count_where(self, where_clause: str, params: dict[str, Any]) -> int:
+        result = self.connection.execute(
+            text(f"SELECT COUNT(*) FROM outbox.{self.table_name} WHERE {where_clause}"),
+            params,
+        )
+        return int(result.scalar_one())
+
     def exists_where(self, where_clause: str, params: dict[str, Any]) -> bool:
         result = self.connection.execute(
             text(
@@ -49,6 +56,7 @@ class BaseProbe:
 
 class Probe:
     def __init__(self, connection: Connection):
+        self.connection = connection
         self.project = ProjectProbe(connection)
         self.user_account = UserAccountProbe(connection)
         self.project_member = ProjectMemberProbe(connection)
@@ -61,9 +69,13 @@ class Probe:
         self.event_delivery = EventDeliveryProbe(connection)
         self.metric_definition = MetricDefinitionProbe(connection)
         self.metric_definition_version = MetricDefinitionVersionProbe(connection)
-        self.metric_definition_version_schema = MetricDefinitionVersionSchemaProbe(connection)
+        self.metric_definition_version_schema = MetricDefinitionVersionSchemaProbe(
+            connection
+        )
         self.processing_chain = ProcessingChainProbe(connection)
         self.processing_plan = ProcessingPlanProbe(connection)
+        self.metric_processing_execution = MetricProcessingExecutionProbe(connection)
+        self.metric_plan_execution = MetricPlanExecutionProbe(connection)
         self.analytical_observation = AnalyticalObservationProbe(connection)
         self.metric_state = MetricStateProbe(connection)
         self.metric_checkpoint = MetricCheckpointProbe(connection)
@@ -148,7 +160,9 @@ class ProjectMemberProbe(BaseProbe):
     def __init__(self, connection: Connection):
         super().__init__(connection, "project_member")
 
-    def exists_by_project_and_user(self, project: PersistedObject, user: PersistedObject) -> bool:
+    def exists_by_project_and_user(
+        self, project: PersistedObject, user: PersistedObject
+    ) -> bool:
         return self.exists_where(
             "project_id = :project_id AND user_id = :user_id",
             {"project_id": project.id, "user_id": user.id},
@@ -250,7 +264,9 @@ class MetricsTokenProbe(BaseProbe):
         super().__init__(connection, "metrics_token")
 
     def exists_by_token_prefix(self, token_prefix: str) -> bool:
-        return self.exists_where("token_prefix = :token_prefix", {"token_prefix": token_prefix})
+        return self.exists_where(
+            "token_prefix = :token_prefix", {"token_prefix": token_prefix}
+        )
 
     def exists_active_by_project(self, project: PersistedObject) -> bool:
         return self.exists_where(
@@ -269,7 +285,9 @@ class EventTypeProbe(BaseProbe):
             {"project_id": project.id, "code": code},
         )
 
-    def exists_active_by_project_and_code(self, project: PersistedObject, code: str) -> bool:
+    def exists_active_by_project_and_code(
+        self, project: PersistedObject, code: str
+    ) -> bool:
         return self.exists_where(
             "project_id = :project_id AND code = :code AND is_active = true",
             {"project_id": project.id, "code": code},
@@ -387,7 +405,6 @@ class SchemaDefinitionProbe(BaseProbe):
         )
 
         return dict(result.scalar_one())
-
 
     def get_id_by_event_type_and_destination(
         self,
@@ -635,7 +652,6 @@ class EventProbe(BaseProbe):
     def exists_by_uuid(self, event_uuid: str) -> bool:
         return self.exists_where("event_uuid = :event_uuid", {"event_uuid": event_uuid})
 
-
     def exists_by_event_destination_and_url(
         self,
         event: PersistedObject,
@@ -688,7 +704,9 @@ class EventDeliveryProbe(BaseProbe):
         )
         return int(result.scalar_one())
 
-    def status_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str:
+    def status_by_event_and_destination(
+        self, event: PersistedObject, destination_name: str
+    ) -> str:
         result = self.connection.execute(
             text(
                 """
@@ -702,7 +720,9 @@ class EventDeliveryProbe(BaseProbe):
         )
         return str(result.scalar_one())
 
-    def destination_type_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> str:
+    def destination_type_by_event_and_destination(
+        self, event: PersistedObject, destination_name: str
+    ) -> str:
         result = self.connection.execute(
             text(
                 """
@@ -716,7 +736,9 @@ class EventDeliveryProbe(BaseProbe):
         )
         return str(result.scalar_one())
 
-    def destination_url_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> Optional[str]:
+    def destination_url_by_event_and_destination(
+        self, event: PersistedObject, destination_name: str
+    ) -> Optional[str]:
         result = self.connection.execute(
             text(
                 """
@@ -731,7 +753,9 @@ class EventDeliveryProbe(BaseProbe):
         value = result.scalar_one()
         return str(value) if value is not None else None
 
-    def attempt_count_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> int:
+    def attempt_count_by_event_and_destination(
+        self, event: PersistedObject, destination_name: str
+    ) -> int:
         result = self.connection.execute(
             text(
                 """
@@ -745,7 +769,9 @@ class EventDeliveryProbe(BaseProbe):
         )
         return int(result.scalar_one())
 
-    def last_error_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> Optional[str]:
+    def last_error_by_event_and_destination(
+        self, event: PersistedObject, destination_name: str
+    ) -> Optional[str]:
         result = self.connection.execute(
             text(
                 """
@@ -760,7 +786,9 @@ class EventDeliveryProbe(BaseProbe):
         value = result.scalar_one()
         return str(value) if value is not None else None
 
-    def event_id_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> int:
+    def event_id_by_event_and_destination(
+        self, event: PersistedObject, destination_name: str
+    ) -> int:
         result = self.connection.execute(
             text(
                 """
@@ -774,8 +802,9 @@ class EventDeliveryProbe(BaseProbe):
         )
         return int(result.scalar_one())
 
-
-    def exists_by_event_and_destination(self, event: PersistedObject, destination_name: str) -> bool:
+    def exists_by_event_and_destination(
+        self, event: PersistedObject, destination_name: str
+    ) -> bool:
         return self.exists_where(
             "event_id = :event_id AND destination_name = :destination_name",
             {"event_id": event.id, "destination_name": destination_name},
@@ -832,13 +861,17 @@ class MetricDefinitionProbe(BaseProbe):
     def __init__(self, connection: Connection):
         super().__init__(connection, "metric_definition")
 
-    def exists_by_event_type_and_code(self, event_type: PersistedObject, code: str) -> bool:
+    def exists_by_event_type_and_code(
+        self, event_type: PersistedObject, code: str
+    ) -> bool:
         return self.exists_where(
             "event_type_id = :event_type_id AND code = :code",
             {"event_type_id": event_type.id, "code": code},
         )
 
-    def exists_active_by_event_type_and_code(self, event_type: PersistedObject, code: str) -> bool:
+    def exists_active_by_event_type_and_code(
+        self, event_type: PersistedObject, code: str
+    ) -> bool:
         return self.exists_where(
             "event_type_id = :event_type_id AND code = :code AND is_active = true",
             {"event_type_id": event_type.id, "code": code},
@@ -865,7 +898,9 @@ class MetricDefinitionVersionProbe(BaseProbe):
             },
         )
 
-    def exists_active_by_metric_definition(self, metric_definition: PersistedObject) -> bool:
+    def exists_active_by_metric_definition(
+        self, metric_definition: PersistedObject
+    ) -> bool:
         return self.exists_where(
             "metric_definition_id = :metric_definition_id AND is_active = true",
             {"metric_definition_id": metric_definition.id},
@@ -1092,11 +1127,71 @@ class AnalyticalObservationProbe(BaseProbe):
     def __init__(self, connection: Connection):
         super().__init__(connection, "analytical_observation")
 
-    def exists_by_event_and_metric_code(self, event: PersistedObject, metric_code: str) -> bool:
+    def exists_by_event_and_metric_code(
+        self, event: PersistedObject, metric_code: str
+    ) -> bool:
         return self.exists_where(
             "event_id = :event_id AND metric_code = :metric_code",
             {"event_id": event.id, "metric_code": metric_code},
         )
+
+    def list_by_event_id(self, event_id: int) -> list[dict[str, Any]]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT metric_code, value, dimensions_json, processing_chain_id,
+                       processing_plan_id, metric_plan_execution_id, observation_key
+                FROM outbox.analytical_observation
+                WHERE event_id = :event_id
+                ORDER BY processing_plan_id, observation_key
+                """
+            ),
+            {"event_id": event_id},
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+
+class MetricProcessingExecutionProbe(BaseProbe):
+    def __init__(self, connection: Connection):
+        super().__init__(connection, "metric_processing_execution")
+
+    def get_by_event_id(self, event_id: int) -> dict[str, Any] | None:
+        result = (
+            self.connection.execute(
+                text(
+                    """
+                SELECT id, processing_chain_id, status, last_error
+                FROM outbox.metric_processing_execution
+                WHERE event_id = :event_id
+                """
+                ),
+                {"event_id": event_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return None if result is None else dict(result)
+
+
+class MetricPlanExecutionProbe(BaseProbe):
+    def __init__(self, connection: Connection):
+        super().__init__(connection, "metric_plan_execution")
+
+    def list_by_event_id(self, event_id: int) -> list[dict[str, Any]]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id, processing_chain_id, processing_plan_id, status,
+                       attempt_count, next_attempt_at, succeeded_at, last_error,
+                       is_retryable
+                FROM outbox.metric_plan_execution
+                WHERE event_id = :event_id
+                ORDER BY processing_plan_id
+                """
+            ),
+            {"event_id": event_id},
+        )
+        return [dict(row) for row in result.mappings().all()]
 
 
 class MetricStateProbe(BaseProbe):
