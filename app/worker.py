@@ -16,6 +16,7 @@ from app.runtime.runtime_event import RuntimeEvent
 from app.runtime.runtime_event_bus import runtime_event_bus
 from app.runtime.runtime_event_type import RuntimeEventType
 from app.services.config_service import ConfigService
+from app.services.metric_runtime_service import MetricPlanExecutionResult
 from app.services.metric_state_aggregation_service import (
     MetricStateAggregationError,
 )
@@ -86,7 +87,7 @@ def route_received_events(db: Session | None = None) -> None:
     For each received event, the function executes the secondary processing
     pipeline:
 
-    1. metrics extraction and observation persistence;
+    1. durable materialization of the exact metric snapshot;
     2. route resolution based on EventType;
     3. EventDelivery creation;
     4. Event status transition to ROUTED or UNROUTABLE.
@@ -101,83 +102,37 @@ def route_received_events(db: Session | None = None) -> None:
         event_ingress_service = ServiceFactory.create_event_ingress_service(db)
         route_service = ServiceFactory.create_route_service(db)
         delivery_repository = ServiceFactory.create_event_delivery_repository(db)
+        materialization_service = (
+            ServiceFactory.create_metric_execution_materialization_service(db)
+        )
 
         events = event_ingress_service.event_repository.find_received()
 
         for event in events:
-            observations = (
-                event_ingress_service
-                .metrics_extraction_service
-                .extract_and_persist_for_event(event)
-            )
-
-            publish_runtime_event(
-                RuntimeEvent(
-                    type=RuntimeEventType.METRICS_EXTRACTED,
-                    event_id=event.id,
-                    event_uuid=event.event_uuid,
-                    event_type_id=event.event_type_id,
-                    correlation_id=event.correlation_id,
-                    message="Metrics extracted",
-                    payload={
-                        "observation_count": len(observations),
-                    },
-                )
-            )
-
-            routes = route_service.route_repository.find_by_event_type(
-                event.event_type_id
-            )
-
-            for route in routes:
-                delivery = EventDelivery(
-                    event_id=event.id,
-                    destination_name=route.destination_name,
-                    destination_type="webhook",
-                    destination_url=route.destination_url,
-                    auth_type=route.auth_type,
-                    auth_config=route.auth_config,
-                    secret_ref=route.secret_ref,
-                    status=DeliveryStatus.PENDING,
-                )
-
-                delivery_repository.create(delivery)
-
-            if routes:
-                event.status = EventStatus.ROUTED
-                event_ingress_service.event_repository.save(event)
-
-                publish_runtime_event(
-                    RuntimeEvent(
-                        type=RuntimeEventType.EVENT_ROUTED,
-                        event_id=event.id,
-                        event_uuid=event.event_uuid,
-                        event_type_id=event.event_type_id,
-                        correlation_id=event.correlation_id,
-                        event_status=event.status,
-                        message="Event routed",
-                        payload={
-                            "delivery_count": len(routes),
-                        },
+            try:
+                with db.begin_nested():
+                    materialization_service.materialize_for_event(event)
+                    _route_materialized_event(
+                        event=event,
+                        event_repository=event_ingress_service.event_repository,
+                        route_repository=route_service.route_repository,
+                        delivery_repository=delivery_repository,
                     )
+            except Exception as exc:
+                logger.exception(
+                    f"[OB1-worker] event materialization/routing error "
+                    f"event_id={event.id} error={exc}"
                 )
-
-            else:
-                event.status = EventStatus.UNROUTABLE
-                event_ingress_service.event_repository.save(event)
-
                 publish_runtime_event(
                     RuntimeEvent(
-                        type=RuntimeEventType.EVENT_UNROUTABLE,
+                        type=RuntimeEventType.EVENT_FAILED,
                         event_id=event.id,
                         event_uuid=event.event_uuid,
                         event_type_id=event.event_type_id,
                         correlation_id=event.correlation_id,
                         event_status=event.status,
-                        message="Event routing failed: no active route found",
-                        payload={
-                            "reason": "NO_ACTIVE_ROUTE",
-                        },
+                        message="Event metric materialization or routing failed",
+                        payload={"error": str(exc)[:1000]},
                     )
                 )
 
@@ -195,6 +150,53 @@ def route_received_events(db: Session | None = None) -> None:
     finally:
         if owns_session:
             db.close()
+
+
+def _route_materialized_event(
+    *,
+    event,
+    event_repository,
+    route_repository,
+    delivery_repository,
+) -> None:
+    """Route one Event only after its metric orders are durable in the unit."""
+    routes = route_repository.find_by_event_type(event.event_type_id)
+    for route in routes:
+        delivery_repository.create(
+            EventDelivery(
+                event_id=event.id,
+                destination_name=route.destination_name,
+                destination_type="webhook",
+                destination_url=route.destination_url,
+                auth_type=route.auth_type,
+                auth_config=route.auth_config,
+                secret_ref=route.secret_ref,
+                status=DeliveryStatus.PENDING,
+            )
+        )
+
+    event.status = EventStatus.ROUTED if routes else EventStatus.UNROUTABLE
+    event_repository.save(event)
+    publish_runtime_event(
+        RuntimeEvent(
+            type=(
+                RuntimeEventType.EVENT_ROUTED
+                if routes
+                else RuntimeEventType.EVENT_UNROUTABLE
+            ),
+            event_id=event.id,
+            event_uuid=event.event_uuid,
+            event_type_id=event.event_type_id,
+            correlation_id=event.correlation_id,
+            event_status=event.status,
+            message="Event routed" if routes else "Event routing found no active route",
+            payload=(
+                {"delivery_count": len(routes)}
+                if routes
+                else {"reason": "NO_ACTIVE_ROUTE"}
+            ),
+        )
+    )
 
 
 def deliver_one_delivery(delivery_id: int, db: Session | None = None) -> None:
@@ -215,23 +217,16 @@ def deliver_one_delivery(delivery_id: int, db: Session | None = None) -> None:
 
     try:
         event_ingress_service = ServiceFactory.create_event_ingress_service(db)
-        delivery_repository = (
-            ServiceFactory.create_event_delivery_repository(db)
-        )
+        delivery_repository = ServiceFactory.create_event_delivery_repository(db)
         delivery_service = ServiceFactory.delivery_service
 
         delivery = delivery_repository.find_by_id(delivery_id)
 
         if delivery is None:
-            logger.info(
-                f"[OB1-worker] delivery not found "
-                f"delivery_id={delivery_id}"
-            )
+            logger.info(f"[OB1-worker] delivery not found delivery_id={delivery_id}")
             return
 
-        event = event_ingress_service.event_repository.get_by_id(
-            delivery.event_id
-        )
+        event = event_ingress_service.event_repository.get_by_id(delivery.event_id)
 
         if event is None:
             delivery.status = DeliveryStatus.DEAD_LETTER
@@ -288,19 +283,18 @@ def deliver_one_delivery(delivery_id: int, db: Session | None = None) -> None:
         )
 
         logger.info(
-            f"[OB1-worker] delivery error "
-            f"delivery_id={delivery_id} "
-            f"error={exc}"
+            f"[OB1-worker] delivery error delivery_id={delivery_id} error={exc}"
         )
 
     finally:
         if owns_session:
             db.close()
 
+
 def persist_delivery_failure(
-        delivery_id: int,
-        error: Exception,
-        db: Session | None = None,
+    delivery_id: int,
+    error: Exception,
+    db: Session | None = None,
 ) -> None:
     """
     Persist the failed result of a delivery attempt.
@@ -315,9 +309,7 @@ def persist_delivery_failure(
         db = SessionLocal()
 
     try:
-        delivery_repository = (
-            ServiceFactory.create_event_delivery_repository(db)
-        )
+        delivery_repository = ServiceFactory.create_event_delivery_repository(db)
 
         delivery = delivery_repository.find_by_id(delivery_id)
 
@@ -352,8 +344,8 @@ def persist_delivery_failure(
         else:
             delivery.status = DeliveryStatus.FAILED
             delay_seconds = retry_delay_seconds(delivery.attempt_count)
-            delivery.next_attempt_at = (
-                datetime.now(UTC) + timedelta(seconds=delay_seconds)
+            delivery.next_attempt_at = datetime.now(UTC) + timedelta(
+                seconds=delay_seconds
             )
 
             publish_runtime_event(
@@ -413,10 +405,7 @@ def deliver_pending_deliveries(db: Session | None = None) -> None:
             max_attempts=max_attempts,
         )
 
-        delivery_ids = [
-            delivery.id
-            for delivery in deliveries
-        ]
+        delivery_ids = [delivery.id for delivery in deliveries]
 
     finally:
         if owns_session:
@@ -427,6 +416,68 @@ def deliver_pending_deliveries(db: Session | None = None) -> None:
             delivery_id=delivery_id,
             db=db if not owns_session else None,
         )
+
+
+def metric_retry_delay_seconds(attempt_count: int) -> float:
+    """Compute the configured exponential delay for metric-plan retries."""
+    initial = config_service.get_metric_retry_initial_delay_seconds()
+    maximum = config_service.get_metric_retry_max_delay_seconds()
+    return float(min(initial * (2 ** max(attempt_count - 1, 0)), maximum))
+
+
+def process_metric_plan_executions(
+    db: Session | None = None,
+) -> tuple[MetricPlanExecutionResult, ...]:
+    """Process durable metric orders independently from routing/delivery."""
+    owns_session = db is None
+    results: list[MetricPlanExecutionResult] = []
+    batch_size = config_service.get_metric_execution_batch_size()
+
+    if db is None:
+        db = SessionLocal()
+
+    try:
+        for _ in range(batch_size):
+            service = ServiceFactory.create_metric_plan_execution_service(
+                db,
+                retry_delay=metric_retry_delay_seconds,
+            )
+            result = service.execute_next()
+            if result is None:
+                if owns_session:
+                    db.rollback()
+                break
+            if owns_session:
+                db.commit()
+            results.append(result)
+            runtime_type = (
+                RuntimeEventType.METRICS_EXTRACTED
+                if result.status == "SUCCEEDED"
+                else RuntimeEventType.METRIC_PLAN_FAILED
+            )
+            publish_runtime_event(
+                RuntimeEvent(
+                    type=runtime_type,
+                    message="Metric ProcessingPlan execution completed",
+                    payload={
+                        "metric_plan_execution_id": result.execution_id,
+                        "status": result.status,
+                        "observation_count": result.observation_count,
+                        "error": result.error,
+                    },
+                )
+            )
+    except Exception:
+        if owns_session:
+            db.rollback()
+            logger.exception("[OB1-worker] metric plan execution error")
+            return tuple(results)
+        raise
+    finally:
+        if owns_session:
+            db.close()
+
+    return tuple(results)
 
 
 @dataclass(frozen=True)
@@ -539,7 +590,6 @@ def aggregate_prometheus_metric_state(
 
 
 def process_outbox() -> None:
-
     publish_runtime_event(
         RuntimeEvent(
             type=RuntimeEventType.WORKER_CYCLE_STARTED,
@@ -548,16 +598,14 @@ def process_outbox() -> None:
     )
 
     route_received_events()
+    process_metric_plan_executions()
     deliver_pending_deliveries()
     aggregate_prometheus_metric_state()
 
     db = SessionLocal()
 
     try:
-        metric_repository = (
-            ServiceFactory
-            .create_system_metric_repository(db)
-        )
+        metric_repository = ServiceFactory.create_system_metric_repository(db)
 
         metric_repository.update_dead_letter_metric()
         metric_repository.update_delivered_metric()
@@ -569,9 +617,7 @@ def process_outbox() -> None:
     except Exception as exc:
         db.rollback()
 
-        logger.info(
-            f"[OB1-worker] metric update error={exc}"
-        )
+        logger.info(f"[OB1-worker] metric update error={exc}")
 
     finally:
         db.close()
@@ -614,6 +660,4 @@ def publish_runtime_event(event: RuntimeEvent) -> None:
     therefore runtime publication must bootstrap its own event loop.
     """
 
-    asyncio.run(
-        runtime_event_bus.publish(event)
-    )
+    asyncio.run(runtime_event_bus.publish(event))

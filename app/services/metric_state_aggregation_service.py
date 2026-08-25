@@ -1,30 +1,28 @@
 from __future__ import annotations
 
+import math
+from collections import defaultdict
+from typing import Optional, Protocol
+
+from app.metrics_engine.prometheus_renderer import (
+    PrometheusRenderingError,
+    normalize_observation_business_labels,
+)
+from app.models.analytical_observation import AnalyticalObservation
+from app.models.metric_checkpoint import MetricCheckpoint
+from app.models.metric_state import MetricState
 from app.repositories.metric_state_repository import (
     MetricObservationStream,
     MetricStateDelta,
     build_checkpoint_name,
     build_labels_hash,
 )
-from collections import defaultdict
-import math
-from typing import Protocol, Optional
-
-from app.metrics_engine.prometheus_renderer import (
-    PrometheusRenderingError,
-    normalize_business_labels,
-)
-from app.models.analytical_observation import AnalyticalObservation
-from app.models.metric_checkpoint import MetricCheckpoint
-from app.models.metric_state import MetricState
 
 
 class MetricStateRepositoryProtocol(Protocol):
-    def find_observation_streams(self) -> list[MetricObservationStream]:
-        ...
+    def find_observation_streams(self) -> list[MetricObservationStream]: ...
 
-    def get_or_create_checkpoint(self, checkpoint_name: str) -> MetricCheckpoint:
-        ...
+    def get_or_create_checkpoint(self, checkpoint_name: str) -> MetricCheckpoint: ...
 
     def find_observations_after(
         self,
@@ -32,24 +30,19 @@ class MetricStateRepositoryProtocol(Protocol):
         event_type_id: int,
         observation_id: int,
         limit: int = 1000,
-    ) -> list[AnalyticalObservation]:
-        ...
+    ) -> list[AnalyticalObservation]: ...
 
-    def upsert_delta(self, delta: MetricStateDelta) -> None:
-        ...
+    def upsert_delta(self, delta: MetricStateDelta) -> None: ...
 
     def update_checkpoint(
         self,
         checkpoint: MetricCheckpoint,
         last_processed_observation_id: int,
-    ) -> MetricCheckpoint:
-        ...
+    ) -> MetricCheckpoint: ...
 
-    def find_states_by_event_type(self, event_type_id: int) -> list[MetricState]:
-        ...
+    def find_states_by_event_type(self, event_type_id: int) -> list[MetricState]: ...
 
-    def find_all_states(self) -> list[MetricState]:
-        ...
+    def find_all_states(self) -> list[MetricState]: ...
 
 
 class MetricStateAggregationError(ValueError):
@@ -141,9 +134,7 @@ class MetricStateAggregationService:
             observations=observations,
             project_id=project_id,
             event_type_id=event_type_id,
-            checkpoint_observation_id=(
-                checkpoint.last_processed_observation_id
-            ),
+            checkpoint_observation_id=(checkpoint.last_processed_observation_id),
         )
         deltas = self._aggregate_observations(observations)
 
@@ -246,19 +237,19 @@ class MetricStateAggregationService:
     def _normalize_labels(
         self,
         labels: Optional[dict],
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         """
-        Convert observation dimensions into Prometheus label strings.
+        Validate observation dimensions while preserving their JSONB structure.
 
         Args:
             labels: Raw JSONB dimensions from AnalyticalObservation.
 
         Returns:
-            Deterministically ordered string labels.
+            Deterministically ordered scalar labels, including structural nulls.
         """
 
         try:
-            return normalize_business_labels(labels)
+            return normalize_observation_business_labels(labels)
         except PrometheusRenderingError as exc:
             raise MetricStateAggregationError(str(exc)) from exc
 

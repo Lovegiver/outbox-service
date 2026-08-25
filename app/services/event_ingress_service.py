@@ -1,13 +1,11 @@
+from uuid import UUID, uuid4
+
 from sqlalchemy.orm import Session
-from uuid import uuid4, UUID
 
 from app.core.event_status import EventStatus
 from app.models.event import Event
 from app.repositories.event_repository import EventRepository
 from app.schemas.event_schema import EventIn, EventReceived
-from app.services.metrics_extraction_service import (
-    MetricsExtractionService,
-)
 from app.services.schema_validation_service import SchemaValidationService
 
 
@@ -30,14 +28,10 @@ class EventIngressService:
         db: Session,
         event_repository: EventRepository,
         schema_validation_service: SchemaValidationService,
-        metrics_extraction_service: MetricsExtractionService,
     ):
         self.db = db
         self.event_repository = event_repository
         self.schema_validation_service = schema_validation_service
-        self.metrics_extraction_service = (
-            metrics_extraction_service
-        )
 
     def receive_event(self, event_in: EventIn) -> EventReceived:
         """
@@ -89,11 +83,7 @@ class EventIngressService:
 
         return EventReceived.model_validate(event)
 
-    def get_event_by_uuid(
-            self,
-            event_uuid: UUID
-    ) -> EventReceived | None:
-
+    def get_event_by_uuid(self, event_uuid: UUID) -> EventReceived | None:
         event = self.event_repository.get_by_uuid(event_uuid)
 
         if event is None:

@@ -12,6 +12,14 @@ delivery:
 worker:
   interval_seconds: 10
 
+metrics:
+  execution:
+    batch_size: 100
+    max_attempts: 3
+    retry:
+      initial_delay_seconds: 5
+      max_delay_seconds: 600
+
 security:
   jwt:
     secret_key: "replace-with-long-random-secret-at-least-32-bytes"

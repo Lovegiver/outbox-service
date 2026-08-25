@@ -12,6 +12,15 @@ from app.metrics_engine.observation import DimensionValue, Observation
 class ObservationExtractionError(ValueError):
     pass
 
+
+@dataclass(frozen=True)
+class KeyedObservation:
+    """Observation carrying its deterministic compiled occurrence identity."""
+
+    observation_key: str
+    observation: Observation
+
+
 @dataclass(frozen=True)
 class ExtractionLimits:
     max_observations_per_event: int = 1000
@@ -32,7 +41,6 @@ def extract_observations(
     metric_yaml: ValidatedMetricYaml,
     limits: ExtractionLimits | None = None,
 ) -> list[Observation]:
-
     observations: list[Observation] = []
     effective_limits = limits or ExtractionLimits()
 
@@ -94,13 +102,49 @@ def extract_observations_from_compiled_plan(
     compiled_plan_json: dict,
     limits: ExtractionLimits | None = None,
 ) -> list[Observation]:
+    return [
+        item.observation
+        for item in extract_keyed_observations_from_compiled_plan(
+            payload=payload,
+            compiled_plan_json=compiled_plan_json,
+            limits=limits,
+        )
+    ]
+
+
+def extract_keyed_observations_from_compiled_plan(
+    payload: dict[str, Any],
+    compiled_plan_json: dict,
+    limits: ExtractionLimits | None = None,
+) -> list[KeyedObservation]:
+    """Execute only a persisted compiler 1.0 document deterministically."""
     observations: list[Observation] = []
+    keyed_observations: list[KeyedObservation] = []
     effective_limits = limits or ExtractionLimits()
 
-    for observation_definition in compiled_plan_json.get("observations", []):
-        metric_code = observation_definition["metric_code"]
-        value_path = observation_definition["value"]["path"]
-        transform = observation_definition["transform"]
+    if not isinstance(compiled_plan_json, dict):
+        raise ObservationExtractionError("Compiled ProcessingPlan must be an object")
+    if compiled_plan_json.get("compiler_version") != "1.0":
+        raise ObservationExtractionError(
+            "Compiled ProcessingPlan uses an unsupported compiler version"
+        )
+    compiled_observations = compiled_plan_json.get("observations")
+    if not isinstance(compiled_observations, list) or not compiled_observations:
+        raise ObservationExtractionError(
+            "Compiled ProcessingPlan must contain observations"
+        )
+
+    for definition_index, observation_definition in enumerate(compiled_observations):
+        try:
+            metric_code = observation_definition["metric_code"]
+            value_definition = observation_definition["value"]
+            value_path = value_definition["path"]
+            value_required = value_definition["required"]
+            transform = observation_definition["transform"]
+        except (KeyError, TypeError) as exc:
+            raise ObservationExtractionError(
+                f"Compiled observation {definition_index} is structurally incomplete"
+            ) from exc
 
         if transform == "constant":
             value_matches = [_ConstantMatch(1.0)]
@@ -108,6 +152,8 @@ def extract_observations_from_compiled_plan(
         else:
             value_matches = parse(value_path).find(payload)
 
+            if not value_matches and value_required is False:
+                continue
             if not value_matches:
                 raise ObservationExtractionError(
                     f"No value found for observation '{metric_code}' "
@@ -139,37 +185,58 @@ def extract_observations_from_compiled_plan(
                     f"{effective_limits.max_observations_per_event} observations"
                 )
 
-            observations.append(
-                Observation(
+            observation = Observation(
+                metric_code=metric_code,
+                value=_apply_transform(
+                    transform=transform,
+                    value=match.value,
                     metric_code=metric_code,
-                    value=_apply_transform(
-                        transform=transform,
-                        value=match.value,
-                        metric_code=metric_code,
+                ),
+                dimensions=dimensions,
+            )
+            observations.append(observation)
+            keyed_observations.append(
+                KeyedObservation(
+                    observation_key=(
+                        f"observation:{definition_index}:occurrence:{index}"
                     ),
-                    dimensions=dimensions,
+                    observation=observation,
                 )
             )
 
-    return observations
+    return keyed_observations
 
 
 def _extract_compiled_label_matches_by_name(
     payload: dict[str, Any],
     observation_definition: dict,
-) -> dict[str, list[Any] | str]:
-    label_matches_by_name: dict[str, list[Any] | str] = {}
+) -> dict[str, list[Any] | str | None]:
+    label_matches_by_name: dict[str, list[Any] | str | None] = {}
 
     for label_definition in observation_definition.get("labels", []):
-        label_name = label_definition["name"]
+        try:
+            label_name = label_definition["name"]
+            label_kind = label_definition["kind"]
+        except (KeyError, TypeError) as exc:
+            raise ObservationExtractionError(
+                "Compiled label definition is structurally incomplete"
+            ) from exc
 
-        if label_definition["kind"] == "index":
+        if label_kind == "index":
             label_matches_by_name[label_name] = "$index"
             continue
 
-        label_path = label_definition["path"]
+        label_path = label_definition.get("path")
+        label_required = label_definition.get("required")
+        if not isinstance(label_path, str) or not label_path:
+            raise ObservationExtractionError(
+                f"Compiled label '{label_name}' has no path"
+            )
         matches = parse(label_path).find(payload)
 
+        if not matches and label_required is False:
+            label_matches_by_name[label_name] = None
+            continue
         if not matches:
             raise ObservationExtractionError(
                 f"No value found for observation "
@@ -208,12 +275,15 @@ def _extract_label_matches_by_name(
 
 def _build_dimensions(
     index: int,
-    label_matches_by_name: dict[str, list[Any] | str],
+    label_matches_by_name: dict[str, list[Any] | str | None],
     observation_code: str,
 ) -> dict[str, DimensionValue]:
     dimensions: dict[str, DimensionValue] = {}
 
     for label_name, label_values in label_matches_by_name.items():
+        if label_values is None:
+            dimensions[label_name] = None
+            continue
         if label_values == "$index":
             dimensions[label_name] = index
             continue
@@ -303,6 +373,7 @@ def _to_dimension_value(
         return value
 
     raise ObservationExtractionError(
-        f"Observation '{observation_code}' label '{label_name}' must resolve to a scalar value, "
+        f"Observation '{observation_code}' label '{label_name}' "
+        "must resolve to a scalar value, "
         f"got {type(value).__name__}"
     )

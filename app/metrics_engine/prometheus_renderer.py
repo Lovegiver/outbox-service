@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import math
+import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-import math
-import re
+from numbers import Real
 from typing import Any
 
 from app.metrics_engine.extractor import MetricSample
-
 
 PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4"
 PROMETHEUS_METRIC_PREFIX = "ob1_"
@@ -67,7 +67,7 @@ def normalize_business_labels(
     for raw_name, raw_value in labels.items():
         name = validate_prometheus_business_label_name(raw_name)
 
-        if raw_value is None:
+        if raw_value is None or raw_value == "":
             continue
 
         if isinstance(raw_value, (dict, list)):
@@ -77,6 +77,28 @@ def normalize_business_labels(
 
         normalized[name] = str(raw_value)
 
+    return dict(sorted(normalized.items()))
+
+
+def normalize_observation_business_labels(
+    labels: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Validate observation dimensions without changing their JSON identity."""
+    if labels is None:
+        return {}
+    if not isinstance(labels, Mapping):
+        raise PrometheusRenderingError(
+            "Prometheus business labels must be a JSON object."
+        )
+
+    normalized: dict[str, Any] = {}
+    for raw_name, raw_value in labels.items():
+        name = validate_prometheus_business_label_name(raw_name)
+        if isinstance(raw_value, (dict, list)):
+            raise PrometheusRenderingError(
+                f'Business label "{name}" must contain a scalar value.'
+            )
+        normalized[name] = raw_value
     return dict(sorted(normalized.items()))
 
 
@@ -117,12 +139,7 @@ def merge_prometheus_labels(
 def escape_prometheus_label_value(value: str) -> str:
     """Escape a label value according to Prometheus text format 0.0.4."""
 
-    return (
-        str(value)
-        .replace("\\", "\\\\")
-        .replace("\n", "\\n")
-        .replace('"', '\\"')
-    )
+    return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
 def render_prometheus_metric_states(
@@ -135,15 +152,18 @@ def render_prometheus_metric_states(
 
     families: defaultdict[
         str,
-        list[tuple[tuple[tuple[str, str], ...], float]],
-    ] = defaultdict(list)
+        dict[tuple[tuple[str, str], ...], list[float]],
+    ] = defaultdict(dict)
     source_codes: defaultdict[str, set[str]] = defaultdict(set)
-    series_identities: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
 
     for sample in samples:
         metric_name = normalize_prometheus_metric_name(sample.metric_code)
         source_codes[metric_name].add(sample.metric_code)
 
+        if isinstance(sample.value, bool) or not isinstance(sample.value, Real):
+            raise PrometheusRenderingError(
+                f'Counter "{metric_name}" must contain a numeric value.'
+            )
         value = float(sample.value)
         if not math.isfinite(value):
             raise PrometheusRenderingError(
@@ -160,21 +180,13 @@ def render_prometheus_metric_states(
             event_type_code=sample.event_type_code,
         )
         label_items = tuple(labels.items())
-        identity = (metric_name, label_items)
-
-        if identity in series_identities:
-            raise PrometheusRenderingError(
-                f'Duplicate Prometheus series detected for "{metric_name}".'
-            )
-
-        series_identities.add(identity)
-        families[metric_name].append((label_items, value))
+        families[metric_name].setdefault(label_items, []).append(value)
 
     for metric_name, metric_codes in source_codes.items():
         if len(metric_codes) > 1:
             codes = ", ".join(sorted(metric_codes))
             raise PrometheusRenderingError(
-                f'Metric codes {codes} normalize to the same Prometheus family '
+                f"Metric codes {codes} normalize to the same Prometheus family "
                 f'"{metric_name}".'
             )
 
@@ -183,7 +195,16 @@ def render_prometheus_metric_states(
     for metric_name in sorted(families):
         lines.append(f"# TYPE {metric_name} counter")
 
-        for label_items, value in sorted(families[metric_name]):
+        rendered_identities: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
+        for label_items, values in sorted(families[metric_name].items()):
+            identity = (metric_name, label_items)
+            if identity in rendered_identities:
+                raise PrometheusRenderingError(
+                    f'Duplicate Prometheus series remained for "{metric_name}" '
+                    "after counter coalescence."
+                )
+            rendered_identities.add(identity)
+            value = math.fsum(sorted(values))
             rendered_labels = ",".join(
                 f'{name}="{escape_prometheus_label_value(label_value)}"'
                 for name, label_value in label_items
