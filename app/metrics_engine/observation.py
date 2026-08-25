@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
-DimensionValue = str | int | float | bool
+DimensionValue = str | int | float | bool | None
 
 
 @dataclass(frozen=True)

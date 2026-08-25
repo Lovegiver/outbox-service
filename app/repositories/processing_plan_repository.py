@@ -15,6 +15,13 @@ class ProcessingPlanRepository:
         self.db.flush()
         return plans
 
+    def find_by_id(self, processing_plan_id: int) -> ProcessingPlan | None:
+        """Return one immutable plan without changing transaction ownership."""
+        statement = select(ProcessingPlan).where(
+            ProcessingPlan.id == processing_plan_id
+        )
+        return self.db.execute(statement).scalar_one_or_none()
+
     def list_active_by_chain_id(
         self,
         processing_chain_id: int,

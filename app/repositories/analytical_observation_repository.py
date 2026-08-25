@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models.analytical_observation import AnalyticalObservation
@@ -37,3 +38,31 @@ class AnalyticalObservationRepository:
         )
 
         return list(self.db.scalars(statement).all())
+
+    def add_runtime_observation_if_absent(
+        self,
+        observation: AnalyticalObservation,
+    ) -> bool:
+        """Insert one deterministic runtime observation idempotently."""
+        statement = (
+            insert(AnalyticalObservation)
+            .values(
+                project_id=observation.project_id,
+                event_type_id=observation.event_type_id,
+                event_id=observation.event_id,
+                metric_definition_id=observation.metric_definition_id,
+                metric_definition_version_id=(observation.metric_definition_version_id),
+                processing_chain_id=observation.processing_chain_id,
+                processing_plan_id=observation.processing_plan_id,
+                metric_plan_execution_id=observation.metric_plan_execution_id,
+                observation_key=observation.observation_key,
+                metric_code=observation.metric_code,
+                value=observation.value,
+                dimensions_json=observation.dimensions_json,
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_analytical_observation_runtime_identity"
+            )
+            .returning(AnalyticalObservation.id)
+        )
+        return self.db.execute(statement).scalar_one_or_none() is not None

@@ -20,6 +20,7 @@ class FakeMetricStateRepository:
         self.observations = observations
         self.checkpoints: dict[str, MetricCheckpoint] = {}
         self.values: dict[tuple[int, int, str, str], float] = {}
+        self.deltas: list[MetricStateDelta] = []
 
     def find_observation_streams(self) -> list[MetricObservationStream]:
         return [MetricObservationStream(project_id=1, event_type_id=2)]
@@ -49,6 +50,7 @@ class FakeMetricStateRepository:
         ][:limit]
 
     def upsert_delta(self, delta: MetricStateDelta) -> None:
+        self.deltas.append(delta)
         key = (
             delta.project_id,
             delta.event_type_id,
@@ -130,9 +132,12 @@ def test_aggregation_processes_limited_batches_without_losing_observations() -> 
 
     assert service.aggregate_stream(project_id=1, event_type_id=2, limit=1) == 1
     assert next(iter(repository.values.values())) == 5
-    assert repository.checkpoints[
-        build_checkpoint_name(1, 2)
-    ].last_processed_observation_id == 2
+    assert (
+        repository.checkpoints[
+            build_checkpoint_name(1, 2)
+        ].last_processed_observation_id
+        == 2
+    )
 
 
 def test_aggregation_rejects_reserved_business_label() -> None:
@@ -149,6 +154,48 @@ def test_aggregation_rejects_reserved_business_label() -> None:
     assert checkpoint.last_processed_observation_id == 0
 
 
+def test_aggregation_preserves_optional_null_label() -> None:
+    repository = FakeMetricStateRepository(
+        [_observation(1, value=1, labels={"country": None})]
+    )
+    service = MetricStateAggregationService(repository)
+
+    service.aggregate_stream(project_id=1, event_type_id=2)
+
+    assert repository.deltas[0].labels_json == {"country": None}
+
+
+def test_aggregation_accepts_literal_missing_label_value() -> None:
+    repository = FakeMetricStateRepository(
+        [_observation(1, value=1, labels={"country": "__missing__"})]
+    )
+    service = MetricStateAggregationService(repository)
+
+    service.aggregate_stream(project_id=1, event_type_id=2)
+
+    assert repository.deltas[0].labels_json == {"country": "__missing__"}
+
+
+def test_aggregation_keeps_null_empty_and_literal_missing_partitions_distinct() -> None:
+    repository = FakeMetricStateRepository(
+        [
+            _observation(1, value=1, labels={"country": None}),
+            _observation(2, value=2, labels={"country": ""}),
+            _observation(3, value=3, labels={"country": "__missing__"}),
+        ]
+    )
+    service = MetricStateAggregationService(repository)
+
+    service.aggregate_stream(project_id=1, event_type_id=2)
+
+    assert [delta.labels_json for delta in repository.deltas] == [
+        {"country": None},
+        {"country": ""},
+        {"country": "__missing__"},
+    ]
+    assert len({delta.labels_hash for delta in repository.deltas}) == 3
+
+
 def test_aggregation_rejects_negative_counter_observation() -> None:
     repository = FakeMetricStateRepository([_observation(1, value=-1)])
     service = MetricStateAggregationService(repository)
@@ -157,3 +204,28 @@ def test_aggregation_rejects_negative_counter_observation() -> None:
         service.aggregate_stream(project_id=1, event_type_id=2)
 
     assert repository.values == {}
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_aggregation_rejects_non_finite_counter_observation(value: float) -> None:
+    repository = FakeMetricStateRepository([_observation(1, value=value)])
+    service = MetricStateAggregationService(repository)
+
+    with pytest.raises(MetricStateAggregationError, match="COUNTER_VALUE_NOT_FINITE"):
+        service.aggregate_stream(project_id=1, event_type_id=2)
+
+    assert repository.values == {}
+    assert repository.deltas == []
+
+
+def test_aggregation_rejects_non_finite_counter_delta_sum() -> None:
+    repository = FakeMetricStateRepository(
+        [_observation(1, value=1e308), _observation(2, value=1e308)]
+    )
+    service = MetricStateAggregationService(repository)
+
+    with pytest.raises(MetricStateAggregationError, match="COUNTER_VALUE_NOT_FINITE"):
+        service.aggregate_stream(project_id=1, event_type_id=2)
+
+    assert repository.values == {}
+    assert repository.deltas == []

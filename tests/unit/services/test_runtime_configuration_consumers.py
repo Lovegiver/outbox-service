@@ -4,7 +4,12 @@ from uuid import uuid4
 import pytest
 
 from app.services.delivery_service import DeliveryService
-from app.worker import retry_delay_seconds
+from app.services.metric_runtime_service import MetricPlanExecutionResult
+from app.worker import (
+    metric_retry_delay_seconds,
+    process_metric_plan_executions,
+    retry_delay_seconds,
+)
 
 
 class DeliveryConfigStub:
@@ -34,6 +39,12 @@ class RetryConfigStub:
 
     def is_retry_jitter_enabled(self) -> bool:
         return False
+
+    def get_metric_retry_initial_delay_seconds(self) -> int:
+        return 2
+
+    def get_metric_retry_max_delay_seconds(self) -> int:
+        return 30
 
 
 def test_delivery_uses_runtime_timeout_and_event_idempotency_headers(monkeypatch):
@@ -130,3 +141,43 @@ def test_retry_delay_uses_exponential_runtime_configuration(monkeypatch):
     assert retry_delay_seconds(attempt_count=1) == 5
     assert retry_delay_seconds(attempt_count=2) == 10
     assert retry_delay_seconds(attempt_count=8) == 600
+
+
+def test_metric_retry_delay_uses_independent_runtime_configuration(monkeypatch):
+    monkeypatch.setattr("app.worker.config_service", RetryConfigStub())
+
+    assert metric_retry_delay_seconds(attempt_count=1) == 2
+    assert metric_retry_delay_seconds(attempt_count=2) == 4
+    assert metric_retry_delay_seconds(attempt_count=8) == 30
+
+
+def test_metric_worker_batch_stops_without_invoking_delivery(monkeypatch) -> None:
+    results = [
+        MetricPlanExecutionResult(1, "SUCCEEDED", 1),
+        None,
+    ]
+
+    class MetricExecutionServiceStub:
+        def execute_next(self):
+            return results.pop(0)
+
+    monkeypatch.setattr(
+        "app.worker.config_service.get_metric_execution_batch_size",
+        lambda: 10,
+    )
+    monkeypatch.setattr(
+        "app.worker.ServiceFactory.create_metric_plan_execution_service",
+        lambda _db, retry_delay: MetricExecutionServiceStub(),
+    )
+    monkeypatch.setattr(
+        "app.worker.deliver_one_delivery",
+        lambda *_args, **_kwargs: pytest.fail("metric retry replayed a delivery"),
+    )
+    monkeypatch.setattr(
+        "app.worker.deliver_pending_deliveries",
+        lambda *_args, **_kwargs: pytest.fail("metric retry replayed deliveries"),
+    )
+
+    processed = process_metric_plan_executions(SimpleNamespace())
+
+    assert processed == (MetricPlanExecutionResult(1, "SUCCEEDED", 1),)

@@ -235,10 +235,46 @@ Le passage d'un champ obligatoire à optionnel reste statiquement compatible et
 est signalé par un avertissement : le comportement lorsque ce champ manque à
 l'exécution est une décision de BDD-015C.
 
-## Lot futur BDD-015C
+## Exécution runtime BDD-015C
 
-BDD-015C décidera le contrat des transformations actuellement déclarées mais
-pas encore toutes exécutables, le comportement exact des champs optionnels
-absents, l'idempotence des AnalyticalObservation et la trace d'une erreur
-métrique isolée du routing/delivery. BDD-015B ne lit aucun Event et ne produit
-aucune AnalyticalObservation.
+Le runtime sélectionne exclusivement la chaîne `ACTIVE` correspondant au
+`schema_definition_id` exact conservé par l'Event. Il matérialise durablement
+le snapshot et une exécution par ProcessingPlan avant la fin du routing, puis
+exécute chaque plan dans une unité transactionnelle indépendante.
+
+Les seuls transforms activables sont `constant`, `identity`, `count`, `length`
+et `to_number`, tous couverts par un exécuteur. Un `value_path` optionnel absent
+ne produit aucune observation. Un label optionnel absent est conservé comme
+`null` dans l'observation puis dans `MetricState`. Aucune valeur métier n'est
+réservée : `"__missing__"` reste une chaîne ordinaire et la chaîne vide reste
+distincte de `null` dans PostgreSQL.
+
+Les sorties runtime de ces transforms alimentent exclusivement des Counters.
+Chaque valeur est donc validée avant la création d'une
+`AnalyticalObservation` : elle doit être numérique, finie et non négative. Une
+valeur incompatible provoque l'échec permanent du seul ProcessingPlan
+concerné, sans observation ni `MetricState` et sans impact sur routing ou
+delivery. Le JSON Schema de l'Event n'est pas réécrit et l'Event reste valide
+selon son propre contrat.
+
+Le futur Builder BDD-016 devra exploiter les contraintes du JSON Schema pour
+refuser ou signaler un intent Counter lorsque le champ ciblé ne garantit pas la
+non-négativité, notamment lorsqu'aucun `minimum: 0` n'est défini.
+
+La projection Prometheus omet les labels `null` et vides. Plusieurs partitions
+internes qui convergent ainsi vers la même identité Prometheus finale sont
+additionnées au rendu, sans réécriture en base. Cette règle est limitée aux
+Counters actuellement supportés et ne préjuge pas du traitement futur des
+Gauges ou Histograms.
+
+Les transforms `unique_count`, `occurrence_count`, `occurrence`, `timestamp`,
+`hour_of_day`, `day_of_week`, `sum`, `avg`, `min` et `max` appartiennent aux
+évolutions futures ou aux idées historiques de la DSL. Bien qu'une version
+antérieure du validateur les ait acceptés, aucun exécuteur runtime stable ne
+leur était associé : ils sont désormais rejetés explicitement avant qu'une
+nouvelle chaîne puisse être construite ou activée.
+
+La clé durable `Event + ProcessingPlan + observation_key` rend les retries et
+rejeux techniques idempotents. Aucun retry métrique ne rejoue une delivery.
+Le contrat détaillé est documenté dans
+[Metric Runtime Execution](Metric%20Runtime%20Execution.md).

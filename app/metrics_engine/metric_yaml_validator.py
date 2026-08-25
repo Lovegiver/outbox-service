@@ -14,23 +14,12 @@ from app.metrics_engine.schema_path_resolver import (
     resolve_path,
 )
 
-
 TRANSFORM_ALLOWED_TYPES = {
     "constant": set(),
     "identity": {"number", "integer"},
     "count": {"array"},
-    "unique_count": {"array"},
-    "occurrence_count": {"array"},
     "length": {"string"},
-    "occurrence": {"string", "integer", "boolean"},
     "to_number": {"boolean"},
-    "timestamp": {"string"},
-    "hour_of_day": {"string"},
-    "day_of_week": {"string"},
-    "sum": {"array"},
-    "avg": {"array"},
-    "min": {"array"},
-    "max": {"array"},
 }
 
 
@@ -185,7 +174,8 @@ def _validate_labels(
         if label_path == "$index":
             if value_path.iterator_path is None:
                 raise MetricYamlValidationError(
-                    f"Observation '{observation_code}' label '{label_name}' uses $index "
+                    f"Observation '{observation_code}' label "
+                    f"'{label_name}' uses $index "
                     "but value_path does not iterate over an array"
                 )
 
@@ -248,6 +238,4 @@ def _resolve_existing_path(
         return resolve_path(schema_graph, path)
 
     except SchemaPathResolutionError as exc:
-        raise MetricYamlValidationError(
-            f"{context} is invalid: {exc}"
-        ) from exc
+        raise MetricYamlValidationError(f"{context} is invalid: {exc}") from exc

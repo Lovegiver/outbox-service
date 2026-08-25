@@ -3,12 +3,14 @@ from app.models.api_key import ApiKey
 from app.models.event import Event
 from app.models.event_delivery import EventDelivery
 from app.models.event_type import EventType
+from app.models.metric_checkpoint import MetricCheckpoint
 from app.models.metric_definition import MetricDefinition
 from app.models.metric_definition_version import MetricDefinitionVersion
 from app.models.metric_definition_version_schema import MetricDefinitionVersionSchema
-from app.models.metrics_token import MetricsToken
-from app.models.metric_checkpoint import MetricCheckpoint
+from app.models.metric_plan_execution import MetricPlanExecution
+from app.models.metric_processing_execution import MetricProcessingExecution
 from app.models.metric_state import MetricState
+from app.models.metrics_token import MetricsToken
 from app.models.processing_chain import ProcessingChain
 from app.models.processing_plan import ProcessingPlan
 from app.models.project import Project
@@ -30,6 +32,8 @@ __all__ = [
     "MetricsToken",
     "MetricCheckpoint",
     "MetricState",
+    "MetricProcessingExecution",
+    "MetricPlanExecution",
     "ProjectMember",
     "UserAccount",
     "MetricDefinition",

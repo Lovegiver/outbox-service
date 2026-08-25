@@ -1,30 +1,32 @@
 from __future__ import annotations
 
+from collections import defaultdict
+from typing import Optional, Protocol
+
+from app.metrics_engine.counter_value import (
+    CounterValueError,
+    coalesce_counter_increments,
+    normalize_counter_increment,
+)
+from app.metrics_engine.prometheus_renderer import (
+    PrometheusRenderingError,
+    normalize_observation_business_labels,
+)
+from app.models.analytical_observation import AnalyticalObservation
+from app.models.metric_checkpoint import MetricCheckpoint
+from app.models.metric_state import MetricState
 from app.repositories.metric_state_repository import (
     MetricObservationStream,
     MetricStateDelta,
     build_checkpoint_name,
     build_labels_hash,
 )
-from collections import defaultdict
-import math
-from typing import Protocol, Optional
-
-from app.metrics_engine.prometheus_renderer import (
-    PrometheusRenderingError,
-    normalize_business_labels,
-)
-from app.models.analytical_observation import AnalyticalObservation
-from app.models.metric_checkpoint import MetricCheckpoint
-from app.models.metric_state import MetricState
 
 
 class MetricStateRepositoryProtocol(Protocol):
-    def find_observation_streams(self) -> list[MetricObservationStream]:
-        ...
+    def find_observation_streams(self) -> list[MetricObservationStream]: ...
 
-    def get_or_create_checkpoint(self, checkpoint_name: str) -> MetricCheckpoint:
-        ...
+    def get_or_create_checkpoint(self, checkpoint_name: str) -> MetricCheckpoint: ...
 
     def find_observations_after(
         self,
@@ -32,24 +34,19 @@ class MetricStateRepositoryProtocol(Protocol):
         event_type_id: int,
         observation_id: int,
         limit: int = 1000,
-    ) -> list[AnalyticalObservation]:
-        ...
+    ) -> list[AnalyticalObservation]: ...
 
-    def upsert_delta(self, delta: MetricStateDelta) -> None:
-        ...
+    def upsert_delta(self, delta: MetricStateDelta) -> None: ...
 
     def update_checkpoint(
         self,
         checkpoint: MetricCheckpoint,
         last_processed_observation_id: int,
-    ) -> MetricCheckpoint:
-        ...
+    ) -> MetricCheckpoint: ...
 
-    def find_states_by_event_type(self, event_type_id: int) -> list[MetricState]:
-        ...
+    def find_states_by_event_type(self, event_type_id: int) -> list[MetricState]: ...
 
-    def find_all_states(self) -> list[MetricState]:
-        ...
+    def find_all_states(self) -> list[MetricState]: ...
 
 
 class MetricStateAggregationError(ValueError):
@@ -141,9 +138,7 @@ class MetricStateAggregationService:
             observations=observations,
             project_id=project_id,
             event_type_id=event_type_id,
-            checkpoint_observation_id=(
-                checkpoint.last_processed_observation_id
-            ),
+            checkpoint_observation_id=(checkpoint.last_processed_observation_id),
         )
         deltas = self._aggregate_observations(observations)
 
@@ -200,7 +195,7 @@ class MetricStateAggregationService:
         """
 
         grouped: dict[tuple[int, int, str, str], MetricStateDelta] = {}
-        values: defaultdict[tuple[int, int, str, str], float] = defaultdict(float)
+        values: defaultdict[tuple[int, int, str, str], list[float]] = defaultdict(list)
 
         for observation in observations:
             labels = self._normalize_labels(observation.dimensions_json)
@@ -213,7 +208,7 @@ class MetricStateAggregationService:
                 labels_hash,
             )
 
-            values[key] += value
+            values[key].append(value)
 
             if key not in grouped:
                 grouped[key] = MetricStateDelta(
@@ -238,7 +233,7 @@ class MetricStateAggregationService:
                 metric_code=delta.metric_code,
                 labels_json=delta.labels_json,
                 labels_hash=delta.labels_hash,
-                value=values[key],
+                value=self._coalesce_counter_values(values[key], delta.metric_code),
             )
             for key, delta in grouped.items()
         ]
@@ -246,19 +241,19 @@ class MetricStateAggregationService:
     def _normalize_labels(
         self,
         labels: Optional[dict],
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         """
-        Convert observation dimensions into Prometheus label strings.
+        Validate observation dimensions while preserving their JSONB structure.
 
         Args:
             labels: Raw JSONB dimensions from AnalyticalObservation.
 
         Returns:
-            Deterministically ordered string labels.
+            Deterministically ordered scalar labels, including structural nulls.
         """
 
         try:
-            return normalize_business_labels(labels)
+            return normalize_observation_business_labels(labels)
         except PrometheusRenderingError as exc:
             raise MetricStateAggregationError(str(exc)) from exc
 
@@ -267,23 +262,22 @@ class MetricStateAggregationService:
         observation: AnalyticalObservation,
     ) -> float:
         try:
-            value = float(observation.value)
-        except (TypeError, ValueError) as exc:
-            raise MetricStateAggregationError(
-                f"Observation {observation.id} has a non-numeric counter value."
-            ) from exc
-
-        if not math.isfinite(value):
-            raise MetricStateAggregationError(
-                f"Observation {observation.id} has a non-finite counter value."
+            return normalize_counter_increment(
+                observation.value,
+                context=f"Observation {observation.id}",
             )
+        except CounterValueError as exc:
+            raise MetricStateAggregationError(str(exc)) from exc
 
-        if value < 0:
-            raise MetricStateAggregationError(
-                f"Observation {observation.id} has a negative counter value."
+    @staticmethod
+    def _coalesce_counter_values(values: list[float], metric_code: str) -> float:
+        try:
+            return coalesce_counter_increments(
+                values,
+                context=f"MetricState delta '{metric_code}'",
             )
-
-        return value
+        except CounterValueError as exc:
+            raise MetricStateAggregationError(str(exc)) from exc
 
     @staticmethod
     def _validate_observation_batch(

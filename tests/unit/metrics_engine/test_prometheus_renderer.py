@@ -36,10 +36,7 @@ def test_normalize_metric_name_replaces_invalid_characters() -> None:
 
 
 def test_normalize_metric_name_does_not_duplicate_ob1_prefix() -> None:
-    assert (
-        normalize_prometheus_metric_name("ob1_products.sold")
-        == "ob1_products_sold"
-    )
+    assert normalize_prometheus_metric_name("ob1_products.sold") == "ob1_products_sold"
 
 
 def test_merge_labels_adds_platform_labels_and_sorts_all_labels() -> None:
@@ -55,6 +52,17 @@ def test_merge_labels_adds_platform_labels_and_sorts_all_labels() -> None:
         ("ob1_project", "shop"),
         ("region", "west"),
     ]
+
+
+def test_null_and_empty_business_labels_are_omitted_at_projection() -> None:
+    assert normalize_business_labels({"country": None, "region": ""}) == {}
+
+
+def test_literal_missing_and_ordinary_values_are_preserved() -> None:
+    assert normalize_business_labels({"country": "__missing__", "region": "west"}) == {
+        "country": "__missing__",
+        "region": "west",
+    }
 
 
 def test_reject_business_label_using_reserved_prefix() -> None:
@@ -90,6 +98,89 @@ def test_renderer_groups_series_and_emits_one_type_line_per_family() -> None:
     ) in document
 
 
+@pytest.mark.parametrize(
+    ("first_labels", "second_labels"),
+    [
+        ({}, {"country": None}),
+        ({}, {"country": ""}),
+        ({"country": None}, {"country": ""}),
+    ],
+)
+def test_renderer_coalesces_counter_partitions_with_same_final_identity(
+    first_labels: dict,
+    second_labels: dict,
+) -> None:
+    document = render_prometheus_metric_states(
+        [
+            _sample(value=3, labels=first_labels),
+            _sample(value=2, labels=second_labels),
+        ]
+    )
+
+    assert document.count("ob1_products_sold_total{") == 1
+    assert document.endswith("} 5\n")
+    assert "country=" not in document
+
+
+def test_renderer_coalesces_three_partitions_exactly_once() -> None:
+    samples = [
+        _sample(value=1, labels={}),
+        _sample(value=2, labels={"country": None}),
+        _sample(value=3, labels={"country": ""}),
+    ]
+    document = render_prometheus_metric_states(samples)
+
+    assert document.count("ob1_products_sold_total{") == 1
+    assert document.endswith("} 6\n")
+    assert render_prometheus_metric_states(list(reversed(samples))) == document
+
+
+def test_literal_missing_and_ordinary_values_remain_distinct_series() -> None:
+    document = render_prometheus_metric_states(
+        [
+            _sample(value=1, labels={}),
+            _sample(value=2, labels={"country": "__missing__"}),
+            _sample(value=4, labels={"country": "FR"}),
+        ]
+    )
+
+    assert document.count("ob1_products_sold_total{") == 3
+    assert 'country="__missing__"' in document
+    assert 'country="FR"' in document
+
+
+def test_renderer_does_not_merge_different_final_label_sets() -> None:
+    document = render_prometheus_metric_states(
+        [
+            _sample(value=2, labels={"country": "FR"}),
+            _sample(value=4, labels={"country": "BE"}),
+        ]
+    )
+
+    assert document.count("ob1_products_sold_total{") == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "second_value"),
+    [("project_name", "other-shop"), ("event_type_code", "product.returned")],
+)
+def test_renderer_does_not_coalesce_distinct_platform_labels(
+    field: str,
+    second_value: str,
+) -> None:
+    kwargs = {field: second_value}
+    document = render_prometheus_metric_states(
+        [_sample(value=2), _sample(value=4, **kwargs)]
+    )
+
+    assert document.count("ob1_products_sold_total{") == 2
+
+
+def test_renderer_rejects_non_numeric_counter_before_coalescence() -> None:
+    with pytest.raises(PrometheusRenderingError, match="numeric"):
+        render_prometheus_metric_states([_sample(value="3")])
+
+
 def test_renderer_returns_empty_body_without_state() -> None:
     assert render_prometheus_metric_states([]) == ""
 
@@ -101,6 +192,19 @@ def test_non_empty_document_has_final_newline() -> None:
 def test_renderer_rejects_negative_counter_value() -> None:
     with pytest.raises(PrometheusRenderingError, match="negative"):
         render_prometheus_metric_states([_sample(value=-1)])
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_renderer_rejects_non_finite_historical_counter(value: float) -> None:
+    with pytest.raises(PrometheusRenderingError, match="COUNTER_VALUE_NOT_FINITE"):
+        render_prometheus_metric_states([_sample(value=value)])
+
+
+def test_renderer_rejects_non_finite_coalesced_counter_total() -> None:
+    with pytest.raises(PrometheusRenderingError, match="COUNTER_VALUE_NOT_FINITE"):
+        render_prometheus_metric_states(
+            [_sample(value=1e308), _sample(value=1e308, labels={"country": None})]
+        )
 
 
 def test_renderer_rejects_metric_codes_colliding_after_normalization() -> None:
@@ -124,7 +228,5 @@ def test_renderer_orders_families_and_series_deterministically() -> None:
     reverse = render_prometheus_metric_states(list(reversed(samples)))
 
     assert forward == reverse
-    assert forward.index("# TYPE ob1_a_metric") < forward.index(
-        "# TYPE ob1_z_metric"
-    )
+    assert forward.index("# TYPE ob1_a_metric") < forward.index("# TYPE ob1_z_metric")
     assert forward.index('country="BE"') < forward.index('country="FR"')

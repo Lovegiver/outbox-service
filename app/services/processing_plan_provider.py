@@ -1,12 +1,29 @@
 from __future__ import annotations
 
-from app.metrics_engine.compiled_processing_plan import CompiledProcessingPlan
+from app.metrics_engine.compiled_processing_plan import (
+    CompiledProcessingPlan,
+    CompiledProcessingSnapshot,
+)
+from app.repositories.metric_definition_version_schema_repository import (
+    MetricDefinitionVersionSchemaRepository,
+)
 from app.repositories.processing_chain_repository import ProcessingChainRepository
 from app.repositories.processing_plan_repository import ProcessingPlanRepository
 
 
 class ProcessingPlanConfigurationError(RuntimeError):
     """Raised when an active ProcessingPlan is not executable as persisted."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        processing_chain_id: int,
+        processing_plan_id: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.processing_chain_id = processing_chain_id
+        self.processing_plan_id = processing_plan_id
 
 
 class ProcessingPlanProvider:
@@ -23,6 +40,7 @@ class ProcessingPlanProvider:
         self,
         processing_chain_repository: ProcessingChainRepository,
         processing_plan_repository: ProcessingPlanRepository,
+        compatibility_repository: MetricDefinitionVersionSchemaRepository,
     ) -> None:
         """
         Initialize the provider.
@@ -35,6 +53,79 @@ class ProcessingPlanProvider:
         """
         self.processing_chain_repository = processing_chain_repository
         self.processing_plan_repository = processing_plan_repository
+        self.compatibility_repository = compatibility_repository
+
+    def get_active_snapshot(
+        self,
+        event_type_id: int,
+        schema_definition_id: int,
+    ) -> CompiledProcessingSnapshot | None:
+        """Return the exact active snapshot or ``None`` without any fallback."""
+        active_chain = self.processing_chain_repository.find_active(
+            event_type_id=event_type_id,
+            schema_definition_id=schema_definition_id,
+        )
+        if active_chain is None:
+            return None
+
+        plans = self.processing_plan_repository.list_active_by_chain_id(
+            processing_chain_id=active_chain.id,
+        )
+        if not plans:
+            raise ProcessingPlanConfigurationError(
+                f"Active ProcessingChain {active_chain.id} has no executable plans.",
+                processing_chain_id=active_chain.id,
+            )
+
+        compiled_plans: list[CompiledProcessingPlan] = []
+        for plan in plans:
+            if plan.compiled_plan_json is None:
+                raise ProcessingPlanConfigurationError(
+                    f"Active ProcessingPlan {plan.id} has no compiled plan.",
+                    processing_chain_id=active_chain.id,
+                    processing_plan_id=plan.id,
+                )
+            if plan.processing_chain_id != active_chain.id:
+                raise ProcessingPlanConfigurationError(
+                    f"ProcessingPlan {plan.id} references another ProcessingChain.",
+                    processing_chain_id=active_chain.id,
+                    processing_plan_id=plan.id,
+                )
+            if (
+                plan.metric_definition.event_type_id != event_type_id
+                or plan.metric_definition_version.metric_definition_id
+                != plan.metric_definition_id
+            ):
+                raise ProcessingPlanConfigurationError(
+                    f"ProcessingPlan {plan.id} has incoherent metric references.",
+                    processing_chain_id=active_chain.id,
+                    processing_plan_id=plan.id,
+                )
+            compatibility = self.compatibility_repository.find_by_version_and_schema(
+                metric_definition_version_id=plan.metric_definition_version_id,
+                schema_definition_id=schema_definition_id,
+            )
+            if compatibility is None:
+                raise ProcessingPlanConfigurationError(
+                    f"ProcessingPlan {plan.id} no longer has schema compatibility.",
+                    processing_chain_id=active_chain.id,
+                    processing_plan_id=plan.id,
+                )
+            compiled_plans.append(
+                CompiledProcessingPlan(
+                    processing_chain_id=active_chain.id,
+                    processing_plan_id=plan.id,
+                    metric_definition_id=plan.metric_definition_id,
+                    metric_definition_version_id=plan.metric_definition_version_id,
+                    position=plan.position,
+                    compiled_plan_json=plan.compiled_plan_json,
+                )
+            )
+
+        return CompiledProcessingSnapshot(
+            processing_chain_id=active_chain.id,
+            plans=tuple(compiled_plans),
+        )
 
     def get_active_plans(
         self,
@@ -53,33 +144,7 @@ class ProcessingPlanProvider:
             A list of compiled plans. Returns an empty list when no active chain
             exists for the provided scope.
         """
-        active_chain = self.processing_chain_repository.find_active(
-            event_type_id=event_type_id,
-            schema_definition_id=schema_definition_id,
-        )
-
-        if active_chain is None:
+        snapshot = self.get_active_snapshot(event_type_id, schema_definition_id)
+        if snapshot is None:
             return []
-
-        plans = self.processing_plan_repository.list_active_by_chain_id(
-            processing_chain_id=active_chain.id,
-        )
-
-        compiled_plans: list[CompiledProcessingPlan] = []
-
-        for plan in plans:
-            if plan.compiled_plan_json is None:
-                raise ProcessingPlanConfigurationError(
-                    f"Active ProcessingPlan {plan.id} has no compiled plan."
-                )
-
-            compiled_plans.append(
-                CompiledProcessingPlan(
-                    processing_chain_id=active_chain.id,
-                    metric_definition_id=plan.metric_definition_id,
-                    metric_definition_version_id=plan.metric_definition_version_id,
-                    compiled_plan_json=plan.compiled_plan_json,
-                )
-            )
-
-        return compiled_plans
+        return list(snapshot.plans)
