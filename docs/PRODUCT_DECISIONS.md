@@ -332,6 +332,13 @@ moins une livraison.
 - Le runtime ne lit, ne valide et ne compile jamais le YAML.
 - Les transforms exécutables sont `constant`, `identity`, `count`, `length` et
   `to_number`. Une opération sans exécuteur est refusée avant activation.
+- Les métriques utilisateur sont actuellement des Counters. Chaque incrément
+  est validé avant la création d'une `AnalyticalObservation` : il doit être
+  numérique, fini et supérieur ou égal à zéro. `-0` est normalisé à zéro.
+  Une valeur incompatible place uniquement son `MetricPlanExecution` en
+  `FAILED_PERMANENT`, sans `AnalyticalObservation`, sans `MetricState` et sans
+  interrompre routing ou delivery. L'agrégateur et le renderer conservent une
+  défense contre les données historiques ou corrompues.
 - Un `value_path` optionnel absent ne produit aucune observation.
 - Un label optionnel absent reste un `null` structurel dans
   `AnalyticalObservation` et `MetricState`. Aucune valeur métier n'est réservée :
@@ -350,6 +357,10 @@ moins une livraison.
 
 Les paramètres de batch, nombre maximal de tentatives et backoff des métriques
 appartiennent à `metrics.execution` dans les profils runtime.
+
+BDD-016 devra analyser les contraintes du JSON Schema et refuser ou avertir
+lorsqu'un intent Counter portant sur une valeur ne garantit pas sa
+non-négativité, par exemple en l'absence de `minimum: 0`.
 
 Les fichiers existants `config/app.dev.yaml`, `config/app.test.yaml` et
 `config/app.prod.yaml` sont le bon emplacement pour les paramètres variant par

@@ -92,6 +92,29 @@ They are `unique_count`, `occurrence_count`, `occurrence`, `timestamp`,
 An unsupported operation found in an older/corrupt active plan is a durable
 permanent failure; the runtime never recompiles it.
 
+## Counter value boundary
+
+User metrics currently materialize only Counters. After applying the compiled
+transform and before constructing an `Observation`, the runtime requires every
+increment to be numeric, finite and non-negative. Positive integers and
+decimals, zero and `-0` are accepted; `-0` is normalized to zero. Boolean
+values are not treated as Python integers by `identity`; only the explicit
+`to_number` transform converts them to `0` or `1`.
+
+The stable failures are `COUNTER_VALUE_NOT_NUMERIC`,
+`COUNTER_VALUE_NOT_FINITE` and `COUNTER_VALUE_NEGATIVE`. They mark only the
+affected `MetricPlanExecution` as `FAILED_PERMANENT`. No
+`AnalyticalObservation` or `MetricState` is created for that plan, surrounding
+plans keep their commits, and routing/delivery continue. Aggregation and
+Prometheus rendering repeat the same centralized validation only as a defense
+against historical, externally corrupted or regressed data. A non-finite
+coalesced Counter total is rejected explicitly.
+
+BDD-016 must inspect JSON Schema numeric constraints and reject or warn when a
+Counter intent targets a value whose non-negativity is not guaranteed, for
+example when `minimum: 0` is absent. This runtime safeguard does not modify or
+strengthen the client's Event schema.
+
 ## Optional fields and labels
 
 An absent optional `value_path` skips only that compiled observation. It emits

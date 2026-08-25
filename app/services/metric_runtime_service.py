@@ -10,6 +10,7 @@ from app.core.metric_execution_status import (
     MetricPlanExecutionStatus,
     MetricProcessingStatus,
 )
+from app.metrics_engine.counter_value import CounterValueError
 from app.metrics_engine.observation_extractor import ObservationExtractionError
 from app.models.event import Event
 from app.models.metric_plan_execution import MetricPlanExecution
@@ -160,7 +161,7 @@ class MetricPlanExecutionService:
                 execution.last_error = None
                 execution.is_retryable = False
                 self.db.flush()
-        except ObservationExtractionError as exc:
+        except (CounterValueError, ObservationExtractionError) as exc:
             self._record_permanent_failure(execution, exc)
         except Exception as exc:
             self._record_technical_failure(execution, exc)

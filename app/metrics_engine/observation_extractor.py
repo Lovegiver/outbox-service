@@ -5,6 +5,7 @@ from typing import Any
 
 from jsonpath_ng import parse
 
+from app.metrics_engine.counter_value import normalize_counter_increment
 from app.metrics_engine.metric_yaml_validator import ValidatedMetricYaml
 from app.metrics_engine.observation import DimensionValue, Observation
 
@@ -85,10 +86,13 @@ def extract_observations(
             observations.append(
                 Observation(
                     metric_code=observation_definition.code,
-                    value=_apply_transform(
-                        transform=observation_definition.transform,
-                        value=match.value,
-                        metric_code=observation_definition.code,
+                    value=normalize_counter_increment(
+                        _apply_transform(
+                            transform=observation_definition.transform,
+                            value=match.value,
+                            metric_code=observation_definition.code,
+                        ),
+                        context=f"Observation '{observation_definition.code}'",
                     ),
                     dimensions=dimensions,
                 )
@@ -187,10 +191,13 @@ def extract_keyed_observations_from_compiled_plan(
 
             observation = Observation(
                 metric_code=metric_code,
-                value=_apply_transform(
-                    transform=transform,
-                    value=match.value,
-                    metric_code=metric_code,
+                value=normalize_counter_increment(
+                    _apply_transform(
+                        transform=transform,
+                        value=match.value,
+                        metric_code=metric_code,
+                    ),
+                    context=f"Observation '{metric_code}'",
                 ),
                 dimensions=dimensions,
             )
@@ -303,31 +310,13 @@ def _build_dimensions(
     return dimensions
 
 
-def _to_float(value: Any, observation_code: str) -> float:
-    if isinstance(value, bool):
-        raise ObservationExtractionError(
-            f"Observation '{observation_code}' value must be numeric, got boolean"
-        )
-
-    if not isinstance(value, (int, float)):
-        raise ObservationExtractionError(
-            f"Observation '{observation_code}' value must be numeric, "
-            f"got {type(value).__name__}"
-        )
-
-    return float(value)
-
-
 def _apply_transform(
     transform: str,
     value: Any,
     metric_code: str,
-) -> float:
+) -> object:
     if transform == "identity":
-        return _to_float(
-            value=value,
-            observation_code=metric_code,
-        )
+        return value
 
     if transform == "count":
         if not isinstance(value, list):

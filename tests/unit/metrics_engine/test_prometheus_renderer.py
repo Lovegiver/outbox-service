@@ -194,6 +194,19 @@ def test_renderer_rejects_negative_counter_value() -> None:
         render_prometheus_metric_states([_sample(value=-1)])
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_renderer_rejects_non_finite_historical_counter(value: float) -> None:
+    with pytest.raises(PrometheusRenderingError, match="COUNTER_VALUE_NOT_FINITE"):
+        render_prometheus_metric_states([_sample(value=value)])
+
+
+def test_renderer_rejects_non_finite_coalesced_counter_total() -> None:
+    with pytest.raises(PrometheusRenderingError, match="COUNTER_VALUE_NOT_FINITE"):
+        render_prometheus_metric_states(
+            [_sample(value=1e308), _sample(value=1e308, labels={"country": None})]
+        )
+
+
 def test_renderer_rejects_metric_codes_colliding_after_normalization() -> None:
     with pytest.raises(PrometheusRenderingError, match="normalize to the same"):
         render_prometheus_metric_states(

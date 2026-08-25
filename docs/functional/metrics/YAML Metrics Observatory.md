@@ -249,6 +249,18 @@ ne produit aucune observation. Un label optionnel absent est conservé comme
 réservée : `"__missing__"` reste une chaîne ordinaire et la chaîne vide reste
 distincte de `null` dans PostgreSQL.
 
+Les sorties runtime de ces transforms alimentent exclusivement des Counters.
+Chaque valeur est donc validée avant la création d'une
+`AnalyticalObservation` : elle doit être numérique, finie et non négative. Une
+valeur incompatible provoque l'échec permanent du seul ProcessingPlan
+concerné, sans observation ni `MetricState` et sans impact sur routing ou
+delivery. Le JSON Schema de l'Event n'est pas réécrit et l'Event reste valide
+selon son propre contrat.
+
+Le futur Builder BDD-016 devra exploiter les contraintes du JSON Schema pour
+refuser ou signaler un intent Counter lorsque le champ ciblé ne garantit pas la
+non-négativité, notamment lorsqu'aucun `minimum: 0` n'est défini.
+
 La projection Prometheus omet les labels `null` et vides. Plusieurs partitions
 internes qui convergent ainsi vers la même identité Prometheus finale sont
 additionnées au rendu, sans réécriture en base. Cette règle est limitée aux

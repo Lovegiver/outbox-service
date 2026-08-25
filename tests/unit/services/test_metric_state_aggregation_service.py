@@ -204,3 +204,28 @@ def test_aggregation_rejects_negative_counter_observation() -> None:
         service.aggregate_stream(project_id=1, event_type_id=2)
 
     assert repository.values == {}
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_aggregation_rejects_non_finite_counter_observation(value: float) -> None:
+    repository = FakeMetricStateRepository([_observation(1, value=value)])
+    service = MetricStateAggregationService(repository)
+
+    with pytest.raises(MetricStateAggregationError, match="COUNTER_VALUE_NOT_FINITE"):
+        service.aggregate_stream(project_id=1, event_type_id=2)
+
+    assert repository.values == {}
+    assert repository.deltas == []
+
+
+def test_aggregation_rejects_non_finite_counter_delta_sum() -> None:
+    repository = FakeMetricStateRepository(
+        [_observation(1, value=1e308), _observation(2, value=1e308)]
+    )
+    service = MetricStateAggregationService(repository)
+
+    with pytest.raises(MetricStateAggregationError, match="COUNTER_VALUE_NOT_FINITE"):
+        service.aggregate_stream(project_id=1, event_type_id=2)
+
+    assert repository.values == {}
+    assert repository.deltas == []

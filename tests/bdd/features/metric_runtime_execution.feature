@@ -97,6 +97,18 @@ Feature: Execute compiled metric ProcessingPlans at Event runtime
     And the failed plan leaves no partial observation
     And routing still creates its delivery
 
+  Scenario: Reject a negative Counter without contaminating the metric pipeline
+    Given a valid runtime Event with a negative Counter plan between two valid plans
+    When the runtime worker routes and processes its metric plans
+    And the runtime metric observations are aggregated
+    And the permanent metric execution is offered to another retry cycle
+    Then the negative Counter plan fails permanently with a stable error
+    And the valid surrounding plans and their MetricState values are preserved
+    And no observation or MetricState exists for the negative Counter plan
+    And the parent metric execution records a completed partial failure
+    And routing keeps exactly one delivery for the Event
+    And the permanent metric execution is not retried
+
   Scenario: Record an ACTIVE chain without plans as a durable defect
     Given a runtime Event with an ACTIVE chain containing no plan
     When the runtime worker routes and processes its metric plans

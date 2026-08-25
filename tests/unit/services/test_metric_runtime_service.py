@@ -9,6 +9,7 @@ from app.metrics_engine.compiled_processing_plan import (
     CompiledProcessingPlan,
     CompiledProcessingSnapshot,
 )
+from app.metrics_engine.counter_value import CounterValueError
 from app.metrics_engine.observation_extractor import ObservationExtractionError
 from app.services.metric_runtime_service import (
     MetricExecutionMaterializationService,
@@ -191,6 +192,23 @@ def test_structural_plan_failure_is_permanent_and_visible() -> None:
         execution.metric_processing_execution.status
         == MetricProcessingStatus.COMPLETED_WITH_ERRORS
     )
+
+
+def test_invalid_counter_value_is_permanent_with_stable_error_code() -> None:
+    service, _, execution = _execution_service(
+        extraction_error=CounterValueError(
+            "COUNTER_VALUE_NEGATIVE",
+            "runtime observation must be non-negative",
+        )
+    )
+
+    result = service.execute_next()
+
+    assert result.status == MetricPlanExecutionStatus.FAILED_PERMANENT
+    assert result.error.startswith("COUNTER_VALUE_NEGATIVE:")
+    assert execution.attempt_count == 1
+    assert execution.is_retryable is False
+    assert execution.next_attempt_at is None
 
 
 def test_technical_failure_is_retryable_until_attempt_limit() -> None:

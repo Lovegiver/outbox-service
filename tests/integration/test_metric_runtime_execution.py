@@ -284,6 +284,88 @@ def test_each_plan_is_atomic_and_routing_survives_metric_failure(
     assert _count(db_connection, "event_delivery", "event_id=:id", id=event.id) == 1
 
 
+def test_negative_counter_fails_one_plan_before_observation_or_metric_state(
+    factory: ObjectFactory,
+    db_session: Session,
+    db_connection: Connection,
+) -> None:
+    project, _, _, _, _, event = _seed_runtime(
+        factory,
+        compiled_plans=[
+            _compiled("positive_before_total"),
+            _compiled("negative_total", transform="identity", path="$.amount"),
+            _compiled("positive_after_total"),
+        ],
+        payload={"amount": -5},
+    )
+
+    route_received_events(db_session)
+    first_results = process_metric_plan_executions(db_session)
+    aggregate_prometheus_metric_state(db_session)
+    delivery_count = _count(
+        db_connection, "event_delivery", "event_id=:id", id=event.id
+    )
+    second_results = process_metric_plan_executions(db_session)
+
+    execution_rows = (
+        db_connection.execute(
+            text(
+                "SELECT status, attempt_count, last_error, is_retryable "
+                "FROM outbox.metric_plan_execution WHERE event_id=:event_id "
+                "ORDER BY processing_plan_id"
+            ),
+            {"event_id": event.id},
+        )
+        .mappings()
+        .all()
+    )
+    observation_codes = list(
+        db_connection.execute(
+            text(
+                "SELECT metric_code FROM outbox.analytical_observation "
+                "WHERE event_id=:event_id ORDER BY metric_code"
+            ),
+            {"event_id": event.id},
+        ).scalars()
+    )
+    state_codes = list(
+        db_connection.execute(
+            text(
+                "SELECT metric_code FROM outbox.metric_state "
+                "WHERE project_id=:project_id ORDER BY metric_code"
+            ),
+            {"project_id": project.id},
+        ).scalars()
+    )
+    parent_status = db_connection.execute(
+        text(
+            "SELECT status FROM outbox.metric_processing_execution "
+            "WHERE event_id=:event_id"
+        ),
+        {"event_id": event.id},
+    ).scalar_one()
+
+    assert [result.status for result in first_results] == [
+        "SUCCEEDED",
+        "FAILED_PERMANENT",
+        "SUCCEEDED",
+    ]
+    assert [row["status"] for row in execution_rows] == [
+        "SUCCEEDED",
+        "FAILED_PERMANENT",
+        "SUCCEEDED",
+    ]
+    assert execution_rows[1]["last_error"].startswith("COUNTER_VALUE_NEGATIVE:")
+    assert execution_rows[1]["is_retryable"] is False
+    assert [row["attempt_count"] for row in execution_rows] == [1, 1, 1]
+    assert observation_codes == ["positive_after_total", "positive_before_total"]
+    assert state_codes == ["positive_after_total", "positive_before_total"]
+    assert parent_status == "COMPLETED_WITH_ERRORS"
+    assert second_results == ()
+    assert delivery_count == 1
+    assert _count(db_connection, "event_delivery", "event_id=:id", id=event.id) == 1
+
+
 def test_parent_execution_distinguishes_processing_from_materialized_and_success(
     factory: ObjectFactory,
     db_session: Session,

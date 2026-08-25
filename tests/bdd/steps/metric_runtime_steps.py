@@ -356,6 +356,32 @@ def mixed_plans(ctx: TestContext) -> None:
     )
 
 
+@given("a valid runtime Event with a negative Counter plan between two valid plans")
+def negative_counter_between_valid_plans(ctx: TestContext) -> None:
+    state = _seed(
+        ctx,
+        plans=[
+            _compiled("positive_before_total"),
+            _compiled(
+                "negative_total",
+                transform="identity",
+                path="$.amount",
+                json_type="number",
+            ),
+            _compiled("positive_after_total"),
+        ],
+        payload={
+            "amount": -5,
+            "items": [],
+            "name": "shop",
+            "active": True,
+            "country": "FR",
+            "premium": True,
+        },
+    )
+    state.delivery_count_before_counter_execution = 0
+
+
 @given("a runtime Event with an ACTIVE chain containing no plan")
 def active_without_plan(ctx: TestContext) -> None:
     _seed(ctx, plans=[], chain_status="ACTIVE", chain_active=True)
@@ -577,6 +603,19 @@ def aggregate_runtime_observations(ctx: TestContext) -> None:
     aggregate_prometheus_metric_state(ctx.db_session)
 
 
+@when("the permanent metric execution is offered to another retry cycle")
+def offer_permanent_execution_to_retry(ctx: TestContext) -> None:
+    state = _state(ctx)
+    state.attempts_before_retry = [
+        row["attempt_count"]
+        for row in ctx.probe.metric_plan_execution.list_by_event_id(state.event.id)
+    ]
+    state.delivery_count_before_retry = ctx.probe.event_delivery.count_where(
+        "event_id=:id", {"id": state.event.id}
+    )
+    state.permanent_retry_results = process_metric_plan_executions(ctx.db_session)
+
+
 @then("three distinct MetricState partitions remain")
 def three_internal_metric_states(ctx: TestContext) -> None:
     rows = (
@@ -622,6 +661,94 @@ def two_successes(ctx: TestContext) -> None:
 def no_partial(ctx: TestContext) -> None:
     rows = ctx.probe.analytical_observation.list_by_event_id(_state(ctx).event.id)
     assert all(row["metric_code"] != "broken_total" for row in rows)
+
+
+@then("the negative Counter plan fails permanently with a stable error")
+def negative_counter_is_permanent(ctx: TestContext) -> None:
+    rows = ctx.probe.metric_plan_execution.list_by_event_id(_state(ctx).event.id)
+    assert [row["status"] for row in rows] == [
+        "SUCCEEDED",
+        "FAILED_PERMANENT",
+        "SUCCEEDED",
+    ]
+    assert rows[1]["last_error"].startswith("COUNTER_VALUE_NEGATIVE:")
+    assert rows[1]["is_retryable"] is False
+
+
+@then("the valid surrounding plans and their MetricState values are preserved")
+def valid_counter_plans_are_preserved(ctx: TestContext) -> None:
+    state = _state(ctx)
+    observation_codes = [
+        row["metric_code"]
+        for row in ctx.probe.analytical_observation.list_by_event_id(state.event.id)
+    ]
+    metric_state_codes = list(
+        ctx.probe.connection.execute(
+            text(
+                "SELECT metric_code FROM outbox.metric_state "
+                "WHERE project_id=:project_id ORDER BY metric_code"
+            ),
+            {"project_id": state.project.id},
+        ).scalars()
+    )
+    assert observation_codes == ["positive_before_total", "positive_after_total"]
+    assert metric_state_codes == ["positive_after_total", "positive_before_total"]
+
+
+@then("no observation or MetricState exists for the negative Counter plan")
+def no_negative_counter_persistence(ctx: TestContext) -> None:
+    state = _state(ctx)
+    assert (
+        ctx.probe.connection.execute(
+            text(
+                "SELECT COUNT(*) FROM outbox.analytical_observation "
+                "WHERE event_id=:event_id AND metric_code='negative_total'"
+            ),
+            {"event_id": state.event.id},
+        ).scalar_one()
+        == 0
+    )
+    assert (
+        ctx.probe.connection.execute(
+            text(
+                "SELECT COUNT(*) FROM outbox.metric_state "
+                "WHERE project_id=:project_id AND metric_code='negative_total'"
+            ),
+            {"project_id": state.project.id},
+        ).scalar_one()
+        == 0
+    )
+
+
+@then("the parent metric execution records a completed partial failure")
+def parent_records_partial_failure(ctx: TestContext) -> None:
+    parent = ctx.probe.metric_processing_execution.get_by_event_id(_state(ctx).event.id)
+    assert parent["status"] == "COMPLETED_WITH_ERRORS"
+
+
+@then("routing keeps exactly one delivery for the Event")
+def routing_keeps_one_delivery(ctx: TestContext) -> None:
+    state = _state(ctx)
+    assert (
+        ctx.probe.event_delivery.count_where("event_id=:id", {"id": state.event.id})
+        == 1
+    )
+
+
+@then("the permanent metric execution is not retried")
+def permanent_counter_failure_is_not_retried(ctx: TestContext) -> None:
+    state = _state(ctx)
+    attempts_after = [
+        row["attempt_count"]
+        for row in ctx.probe.metric_plan_execution.list_by_event_id(state.event.id)
+    ]
+    assert state.permanent_retry_results == ()
+    assert attempts_after == state.attempts_before_retry == [1, 1, 1]
+    assert (
+        ctx.probe.event_delivery.count_where("event_id=:id", {"id": state.event.id})
+        == state.delivery_count_before_retry
+        == 1
+    )
 
 
 @then("a durable metric configuration failure is recorded")

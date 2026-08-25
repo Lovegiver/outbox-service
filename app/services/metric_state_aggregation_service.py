@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 from typing import Optional, Protocol
 
+from app.metrics_engine.counter_value import (
+    CounterValueError,
+    coalesce_counter_increments,
+    normalize_counter_increment,
+)
 from app.metrics_engine.prometheus_renderer import (
     PrometheusRenderingError,
     normalize_observation_business_labels,
@@ -191,7 +195,7 @@ class MetricStateAggregationService:
         """
 
         grouped: dict[tuple[int, int, str, str], MetricStateDelta] = {}
-        values: defaultdict[tuple[int, int, str, str], float] = defaultdict(float)
+        values: defaultdict[tuple[int, int, str, str], list[float]] = defaultdict(list)
 
         for observation in observations:
             labels = self._normalize_labels(observation.dimensions_json)
@@ -204,7 +208,7 @@ class MetricStateAggregationService:
                 labels_hash,
             )
 
-            values[key] += value
+            values[key].append(value)
 
             if key not in grouped:
                 grouped[key] = MetricStateDelta(
@@ -229,7 +233,7 @@ class MetricStateAggregationService:
                 metric_code=delta.metric_code,
                 labels_json=delta.labels_json,
                 labels_hash=delta.labels_hash,
-                value=values[key],
+                value=self._coalesce_counter_values(values[key], delta.metric_code),
             )
             for key, delta in grouped.items()
         ]
@@ -258,23 +262,22 @@ class MetricStateAggregationService:
         observation: AnalyticalObservation,
     ) -> float:
         try:
-            value = float(observation.value)
-        except (TypeError, ValueError) as exc:
-            raise MetricStateAggregationError(
-                f"Observation {observation.id} has a non-numeric counter value."
-            ) from exc
-
-        if not math.isfinite(value):
-            raise MetricStateAggregationError(
-                f"Observation {observation.id} has a non-finite counter value."
+            return normalize_counter_increment(
+                observation.value,
+                context=f"Observation {observation.id}",
             )
+        except CounterValueError as exc:
+            raise MetricStateAggregationError(str(exc)) from exc
 
-        if value < 0:
-            raise MetricStateAggregationError(
-                f"Observation {observation.id} has a negative counter value."
+    @staticmethod
+    def _coalesce_counter_values(values: list[float], metric_code: str) -> float:
+        try:
+            return coalesce_counter_increments(
+                values,
+                context=f"MetricState delta '{metric_code}'",
             )
-
-        return value
+        except CounterValueError as exc:
+            raise MetricStateAggregationError(str(exc)) from exc
 
     @staticmethod
     def _validate_observation_batch(

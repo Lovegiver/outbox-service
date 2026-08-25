@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import math
 import re
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from numbers import Real
 from typing import Any
 
+from app.metrics_engine.counter_value import (
+    CounterValueError,
+    coalesce_counter_increments,
+    normalize_counter_increment,
+)
 from app.metrics_engine.extractor import MetricSample
 
 PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4"
@@ -160,19 +163,13 @@ def render_prometheus_metric_states(
         metric_name = normalize_prometheus_metric_name(sample.metric_code)
         source_codes[metric_name].add(sample.metric_code)
 
-        if isinstance(sample.value, bool) or not isinstance(sample.value, Real):
-            raise PrometheusRenderingError(
-                f'Counter "{metric_name}" must contain a numeric value.'
+        try:
+            value = normalize_counter_increment(
+                sample.value,
+                context=f'Counter "{metric_name}"',
             )
-        value = float(sample.value)
-        if not math.isfinite(value):
-            raise PrometheusRenderingError(
-                f'Counter "{metric_name}" must contain a finite value.'
-            )
-        if value < 0:
-            raise PrometheusRenderingError(
-                f'Counter "{metric_name}" cannot expose a negative value.'
-            )
+        except CounterValueError as exc:
+            raise PrometheusRenderingError(str(exc)) from exc
 
         labels = merge_prometheus_labels(
             business_labels=sample.business_labels,
@@ -204,7 +201,13 @@ def render_prometheus_metric_states(
                     "after counter coalescence."
                 )
             rendered_identities.add(identity)
-            value = math.fsum(sorted(values))
+            try:
+                value = coalesce_counter_increments(
+                    values,
+                    context=f'Counter "{metric_name}"',
+                )
+            except CounterValueError as exc:
+                raise PrometheusRenderingError(str(exc)) from exc
             rendered_labels = ",".join(
                 f'{name}="{escape_prometheus_label_value(label_value)}"'
                 for name, label_value in label_items

@@ -1,5 +1,8 @@
+from copy import deepcopy
+
 import pytest
 
+from app.metrics_engine.counter_value import CounterValueError
 from app.metrics_engine.metric_yaml_validator import validate_metric_yaml
 from app.metrics_engine.observation import Observation
 from app.metrics_engine.observation_extractor import (
@@ -60,6 +63,50 @@ def test_compiled_runtime_executes_every_activable_transform(
 
     assert result[0].observation.value == expected
     assert result[0].observation_key == "observation:0:occurrence:0"
+
+
+@pytest.mark.parametrize(
+    ("value", "error_code"),
+    [
+        (-1, "COUNTER_VALUE_NEGATIVE"),
+        (-0.5, "COUNTER_VALUE_NEGATIVE"),
+        (float("nan"), "COUNTER_VALUE_NOT_FINITE"),
+        (float("inf"), "COUNTER_VALUE_NOT_FINITE"),
+        (float("-inf"), "COUNTER_VALUE_NOT_FINITE"),
+        ("3", "COUNTER_VALUE_NOT_NUMERIC"),
+        (True, "COUNTER_VALUE_NOT_NUMERIC"),
+    ],
+)
+def test_identity_rejects_invalid_counter_before_creating_observation(
+    value: object,
+    error_code: str,
+) -> None:
+    plan = compiled_observation(
+        transform="identity",
+        path="$.amount",
+        json_type="number",
+    )
+    original_plan = deepcopy(plan)
+
+    with pytest.raises(CounterValueError) as exc_info:
+        extract_keyed_observations_from_compiled_plan({"amount": value}, plan)
+
+    assert exc_info.value.code == error_code
+    assert plan == original_plan
+
+
+def test_identity_normalizes_negative_zero_and_to_number_accepts_boolean() -> None:
+    identity = extract_keyed_observations_from_compiled_plan(
+        {"amount": -0.0},
+        compiled_observation(transform="identity", path="$.amount"),
+    )
+    converted = extract_keyed_observations_from_compiled_plan(
+        {"active": False},
+        compiled_observation(transform="to_number", path="$.active"),
+    )
+
+    assert identity[0].observation.value == 0.0
+    assert converted[0].observation.value == 0.0
 
 
 def test_optional_missing_value_skips_only_its_observation() -> None:
