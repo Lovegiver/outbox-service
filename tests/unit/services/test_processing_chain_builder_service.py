@@ -14,7 +14,6 @@ from app.services.processing_chain_builder_service import (
 )
 from app.services.processing_chain_errors import ProcessingChainSelectionError
 
-
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -130,8 +129,7 @@ def test_prepare_chain_is_deterministic_and_uses_canonical_compiler() -> None:
     assert [plan.metric_definition_id for plan in prepared.plans] == [10, 11]
     assert prepared.signature == repeated.signature
     assert all(
-        plan.compiled_plan_json["compiler_version"] == "1.0"
-        for plan in prepared.plans
+        plan.compiled_plan_json["compiler_version"] == "1.1" for plan in prepared.plans
     )
 
 

@@ -121,14 +121,14 @@ def extract_keyed_observations_from_compiled_plan(
     compiled_plan_json: dict,
     limits: ExtractionLimits | None = None,
 ) -> list[KeyedObservation]:
-    """Execute only a persisted compiler 1.0 document deterministically."""
+    """Execute persisted compiler 1.0 and nullable-aware 1.1 plans."""
     observations: list[Observation] = []
     keyed_observations: list[KeyedObservation] = []
     effective_limits = limits or ExtractionLimits()
 
     if not isinstance(compiled_plan_json, dict):
         raise ObservationExtractionError("Compiled ProcessingPlan must be an object")
-    if compiled_plan_json.get("compiler_version") != "1.0":
+    if compiled_plan_json.get("compiler_version") not in {"1.0", "1.1"}:
         raise ObservationExtractionError(
             "Compiled ProcessingPlan uses an unsupported compiler version"
         )
@@ -144,6 +144,7 @@ def extract_keyed_observations_from_compiled_plan(
             value_definition = observation_definition["value"]
             value_path = value_definition["path"]
             value_required = value_definition["required"]
+            value_nullable = value_definition.get("nullable", False)
             transform = observation_definition["transform"]
         except (KeyError, TypeError) as exc:
             raise ObservationExtractionError(
@@ -163,6 +164,19 @@ def extract_keyed_observations_from_compiled_plan(
                     f"No value found for observation '{metric_code}' "
                     f"at path '{value_path}'"
                 )
+            if any(match.value is None for match in value_matches):
+                if value_nullable is True:
+                    value_matches = [
+                        match for match in value_matches if match.value is not None
+                    ]
+                    if not value_matches:
+                        continue
+                else:
+                    raise ObservationExtractionError(
+                        "METRIC_VALUE_NULL_NOT_ALLOWED: "
+                        f"Observation '{metric_code}' resolved null from a "
+                        "non-nullable path"
+                    )
 
             if len(value_matches) > effective_limits.max_matches_per_observation:
                 raise ObservationExtractionError(
@@ -235,6 +249,7 @@ def _extract_compiled_label_matches_by_name(
 
         label_path = label_definition.get("path")
         label_required = label_definition.get("required")
+        label_nullable = label_definition.get("nullable", False)
         if not isinstance(label_path, str) or not label_path:
             raise ObservationExtractionError(
                 f"Compiled label '{label_name}' has no path"
@@ -249,6 +264,13 @@ def _extract_compiled_label_matches_by_name(
                 f"No value found for observation "
                 f"'{observation_definition['metric_code']}' "
                 f"label '{label_name}' at path '{label_path}'"
+            )
+
+        if any(match.value is None for match in matches) and label_nullable is not True:
+            raise ObservationExtractionError(
+                "METRIC_LABEL_NULL_NOT_ALLOWED: "
+                f"Observation '{observation_definition['metric_code']}' label "
+                f"'{label_name}' resolved null from a non-nullable path"
             )
 
         label_matches_by_name[label_name] = [match.value for match in matches]
@@ -358,7 +380,7 @@ def _to_dimension_value(
     observation_code: str,
     label_name: str,
 ) -> DimensionValue:
-    if isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, int, float, bool)):
         return value
 
     raise ObservationExtractionError(

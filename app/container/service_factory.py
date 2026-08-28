@@ -39,6 +39,10 @@ from app.services.dead_letter_service import DeadLetterService
 from app.services.delivery_service import DeliveryService
 from app.services.event_ingress_service import EventIngressService
 from app.services.event_type_service import EventTypeService
+from app.services.metric_builder_schema_analyzer import (
+    MetricBuilderAnalysisLimits,
+    MetricBuilderSchemaAnalyzer,
+)
 from app.services.metric_builder_service import (
     MetricBuilderService,
 )
@@ -391,11 +395,18 @@ class ServiceFactory:
         Returns:
             Configured MetricBuilderService instance.
         """
+        limits = MetricBuilderAnalysisLimits(
+            **cls.config_service.get_metric_builder_limits()
+        )
         return MetricBuilderService(
             schema_repository=SchemaRepository(db),
+            metric_definition_repository=MetricDefinitionRepository(db),
             metric_definition_admin_service=(
                 cls.create_metric_definition_admin_service(db)
             ),
+            metric_yaml_service=MetricYamlService(),
+            schema_analyzer=MetricBuilderSchemaAnalyzer(limits),
+            limits=limits,
         )
 
     @classmethod

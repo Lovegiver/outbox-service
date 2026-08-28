@@ -117,6 +117,7 @@ def _validate_observation(
             json_type="constant",
             iterator_path=None,
             required=True,
+            nullable=False,
         )
 
     else:

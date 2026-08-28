@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import Optional
 
 from app.container.service_factory import ServiceFactory
 from app.core.project_permission import ProjectPermission
@@ -12,12 +13,18 @@ from app.models import UserAccount
 from app.schemas.metric_builder_schema import (
     MetricBuilderCreateRequest,
     MetricBuilderCreateResponse,
+    MetricBuilderInputError,
     MetricBuilderPreviewRequest,
     MetricBuilderPreviewResponse,
     MetricBuilderSchemaField,
     MetricBuilderSchemaFieldsResponse,
 )
-
+from app.services.metric_builder_errors import (
+    MetricBuilderContractError,
+    MetricBuilderNotFoundError,
+    MetricBuilderScopeError,
+    MetricBuilderUnsupportedError,
+)
 
 router = APIRouter(
     prefix="/api/admin/event-types/{event_type_id}/metric-builder",
@@ -48,8 +55,12 @@ def list_metric_builder_schema_fields(
             schema_definition_id=schema_definition_id,
         )
 
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MetricBuilderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=exc.public_message()) from exc
+    except MetricBuilderScopeError as exc:
+        raise HTTPException(status_code=403, detail=exc.public_message()) from exc
+    except MetricBuilderUnsupportedError as exc:
+        raise HTTPException(status_code=422, detail=exc.public_message()) from exc
 
     return MetricBuilderSchemaFieldsResponse(
         event_type_id=event_type_id,
@@ -59,7 +70,11 @@ def list_metric_builder_schema_fields(
                 path=field.path,
                 json_type=field.json_type,
                 required=field.required,
+                nullable=field.nullable,
+                analysis_status=field.analysis_status.value,
+                analysis_reason=field.analysis_reason,
                 label_allowed=field.label_allowed,
+                label_rejection_reason=field.label_rejection_reason,
                 value_intents=field.value_intents,
                 cardinality_risk=field.cardinality_risk,
                 warnings=field.warnings,
@@ -86,14 +101,21 @@ def preview_metric_builder_definition(
     """
     service = ServiceFactory.create_metric_builder_service(db)
 
-    preview = service.preview_metric(
-        event_type_id=event_type_id,
-        schema_definition_id=request.schema_definition_id,
-        metric_code=request.metric_code,
-        intent=request.intent,
-        value_path=request.value_path,
-        labels=request.effective_labels(),
-    )
+    try:
+        preview = service.preview_metric(
+            event_type_id=event_type_id,
+            schema_definition_id=request.schema_definition_id,
+            metric_code=request.metric_code,
+            intent=request.intent,
+            value_path=request.value_path,
+            labels=request.effective_labels(service.limits.max_labels),
+        )
+    except MetricBuilderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=exc.public_message()) from exc
+    except MetricBuilderScopeError as exc:
+        raise HTTPException(status_code=403, detail=exc.public_message()) from exc
+    except MetricBuilderInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return MetricBuilderPreviewResponse(
         valid=preview.valid,
@@ -101,6 +123,7 @@ def preview_metric_builder_definition(
         warnings=preview.warnings,
         yaml_content=preview.yaml_content,
         compiled_plan_json=preview.compiled_plan_json,
+        prometheus_metric_name=preview.prometheus_metric_name,
     )
 
 
@@ -130,12 +153,18 @@ def create_metric_builder_definition(
             description=request.description,
             intent=request.intent,
             value_path=request.value_path,
-            labels=request.effective_labels(),
+            labels=request.effective_labels(service.limits.max_labels),
             yaml_version_label=request.yaml_version_label,
         )
 
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MetricBuilderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=exc.public_message()) from exc
+    except MetricBuilderScopeError as exc:
+        raise HTTPException(status_code=403, detail=exc.public_message()) from exc
+    except MetricBuilderContractError as exc:
+        raise HTTPException(status_code=422, detail=exc.public_message()) from exc
+    except MetricBuilderInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return MetricBuilderCreateResponse(
         metric_definition_id=result.metric_definition.id,

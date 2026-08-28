@@ -1,56 +1,60 @@
+"""Business Metrics Builder orchestration for Counter previews."""
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 import yaml
 
-from app.metrics_engine.metric_plan_compiler import compile_metric_yaml_to_json
-from app.metrics_engine.metric_yaml_validator import (
-    MetricYamlValidationError,
-    validate_metric_yaml,
+from app.metrics_engine.metric_yaml_parser import MetricYamlParseError
+from app.metrics_engine.metric_yaml_validator import MetricYamlValidationError
+from app.metrics_engine.prometheus_renderer import (
+    PrometheusRenderingError,
+    normalize_prometheus_metric_name,
+    validate_prometheus_business_label_name,
 )
 from app.models.metric_definition import MetricDefinition
 from app.models.metric_definition_version import MetricDefinitionVersion
 from app.models.schema_definition import SchemaDefinition
+from app.repositories.metric_definition_repository import MetricDefinitionRepository
 from app.repositories.schema_repository import SchemaRepository
+from app.services.metric_builder_errors import (
+    MetricBuilderContractError,
+    MetricBuilderError,
+    MetricBuilderNameCollisionError,
+    MetricBuilderNotFoundError,
+    MetricBuilderScopeError,
+    MetricBuilderUnsafeError,
+    MetricBuilderUnsupportedError,
+)
+from app.services.metric_builder_schema_analyzer import (
+    AnalyzedBuilderField,
+    MetricBuilderAnalysisLimits,
+    MetricBuilderSchemaAnalysisError,
+    MetricBuilderSchemaAnalyzer,
+    SchemaAnalysisStatus,
+)
 from app.services.metric_definition_admin_service import MetricDefinitionAdminService
-
-
-@dataclass(frozen=True)
-class BuilderField:
-    """
-    Flattened JSON Schema field exposed to the Metrics Builder.
-    """
-
-    path: str
-    json_type: str
-    required: bool
-    label_allowed: bool
-    value_intents: list[str]
-    cardinality_risk: str
-    warnings: list[str]
+from app.services.metric_yaml_service import MetricYamlService
 
 
 @dataclass(frozen=True)
 class BuilderPreview:
-    """
-    Result of a builder preview operation.
-    """
+    """Result of a non-persisting Builder preview."""
 
     valid: bool
     errors: list[str]
     warnings: list[str]
     yaml_content: Optional[str]
-    compiled_plan_json: Optional[dict]
+    compiled_plan_json: Optional[dict[str, Any]]
+    prometheus_metric_name: Optional[str]
 
 
 @dataclass(frozen=True)
 class BuilderCreateResult:
-    """
-    Result of a builder create operation.
-    """
+    """Result of the existing non-atomic Builder create operation."""
 
     metric_definition: MetricDefinition
     metric_definition_version: MetricDefinitionVersion
@@ -58,26 +62,14 @@ class BuilderCreateResult:
     warnings: list[str]
 
 
-@dataclass(frozen=True)
-class _FieldScanContext:
-    """
-    Internal context used while flattening a JSON Schema.
-    """
-
-    path: str
-    required: bool
+_METRIC_CODE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x1f\x7f]")
 
 
 class MetricBuilderService:
-    """
-    Business-oriented facade above the technical YAML Metrics Observatory.
+    """Analyze schemas and validate business Counter intents before preview."""
 
-    The builder allows the UI to work with metric intents such as counting array
-    items or summing numeric values. It generates YAML only as an exchange format
-    consumed by the existing validator, compiler, and processing chain.
-    """
-
-    INTENT_TO_TRANSFORM = {
+    INTENT_TO_TRANSFORM: ClassVar[dict[str, str]] = {
         "count_event": "constant",
         "count_by_label": "constant",
         "sum_value": "identity",
@@ -86,55 +78,34 @@ class MetricBuilderService:
         "count_boolean_true": "to_number",
     }
 
-    DANGEROUS_LABEL_PATTERN = re.compile(
-        r"(^id$|_id$|uuid|email|phone|token|session|correlation|event_uuid)",
-        re.IGNORECASE,
-    )
-
     def __init__(
         self,
         schema_repository: SchemaRepository,
+        metric_definition_repository: MetricDefinitionRepository,
         metric_definition_admin_service: MetricDefinitionAdminService,
+        metric_yaml_service: MetricYamlService,
+        schema_analyzer: MetricBuilderSchemaAnalyzer,
+        limits: MetricBuilderAnalysisLimits,
     ) -> None:
-        """
-        Initialize the service.
-
-        Args:
-            schema_repository: Repository used to load EventType JSON schemas.
-            metric_definition_admin_service: Service used to persist definitions.
-        """
+        """Initialize the Builder with read and canonical compilation services."""
         self.schema_repository = schema_repository
+        self.metric_definition_repository = metric_definition_repository
         self.metric_definition_admin_service = metric_definition_admin_service
+        self.metric_yaml_service = metric_yaml_service
+        self.schema_analyzer = schema_analyzer
+        self.limits = limits
 
     def list_schema_fields(
         self,
         event_type_id: int,
         schema_definition_id: Optional[int] = None,
-    ) -> tuple[SchemaDefinition, list[BuilderField]]:
-        """
-        Return flattened schema fields available to build metrics.
-
-        Args:
-            event_type_id: EventType owning the JSON schema.
-            schema_definition_id: Optional explicit schema identifier. If absent,
-                the active EventType schema is used.
-
-        Returns:
-            The resolved SchemaDefinition and its flattened builder fields.
-
-        Raises:
-            ValueError: If the schema cannot be found or does not belong to the
-                requested EventType.
-        """
+    ) -> tuple[SchemaDefinition, list[AnalyzedBuilderField]]:
+        """Return conservative descriptors for the exact requested schema."""
         schema_definition = self._resolve_schema_definition(
             event_type_id=event_type_id,
             schema_definition_id=schema_definition_id,
         )
-
-        return (
-            schema_definition,
-            self._flatten_schema(schema_definition.json_schema),
-        )
+        return schema_definition, self._analyze(schema_definition.json_schema)
 
     def preview_metric(
         self,
@@ -145,63 +116,66 @@ class MetricBuilderService:
         labels: dict[str, str],
         schema_definition_id: Optional[int] = None,
     ) -> BuilderPreview:
-        """
-        Generate, validate, and compile a metric YAML draft.
-
-        Args:
-            event_type_id: EventType owning the metric.
-            metric_code: Prometheus-compatible metric code without OB1 prefix.
-            intent: Business metric intent selected by the user.
-            value_path: Optional JSON path used as the metric value source.
-            labels: Mapping of Prometheus label names to JSON paths.
-            schema_definition_id: Optional schema used for validation.
-
-        Returns:
-            BuilderPreview containing YAML, warnings, and compiled plan.
-        """
+        """Validate and compile a Counter draft without persisting data."""
         try:
             schema_definition = self._resolve_schema_definition(
                 event_type_id=event_type_id,
                 schema_definition_id=schema_definition_id,
             )
-
+            fields = self._analyze(schema_definition.json_schema)
+            prometheus_name = self._validate_metric_code_and_collision(
+                event_type_id=event_type_id,
+                metric_code=metric_code,
+            )
+            self._validate_intent(
+                intent=intent,
+                value_path=value_path,
+                labels=labels,
+                fields=fields,
+            )
             metric_yaml = self._build_metric_yaml(
                 metric_code=metric_code,
                 intent=intent,
                 value_path=value_path,
                 labels=labels,
             )
-
-            warnings = self._build_cardinality_warnings(labels)
-
-            validated_metric_yaml = validate_metric_yaml(
-                metric_yaml=metric_yaml,
+            yaml_content = yaml.safe_dump(
+                metric_yaml,
+                sort_keys=False,
+                allow_unicode=True,
+            )
+            compilation = self.metric_yaml_service.compile(
+                yaml_content=yaml_content,
                 json_schema=schema_definition.json_schema,
             )
-
-            compiled_plan_json = compile_metric_yaml_to_json(
-                validated_metric_yaml,
-            )
-
             return BuilderPreview(
                 valid=True,
                 errors=[],
-                warnings=warnings,
-                yaml_content=yaml.safe_dump(
-                    metric_yaml,
-                    sort_keys=False,
-                    allow_unicode=True,
-                ),
-                compiled_plan_json=compiled_plan_json,
+                warnings=[],
+                yaml_content=yaml_content,
+                compiled_plan_json=compilation.compiled_plan_json,
+                prometheus_metric_name=prometheus_name,
             )
-
-        except (MetricYamlValidationError, ValueError, yaml.YAMLError) as exc:
+        except (
+            MetricBuilderContractError,
+            MetricBuilderNameCollisionError,
+            MetricBuilderUnsafeError,
+            MetricBuilderUnsupportedError,
+            MetricYamlParseError,
+            MetricYamlValidationError,
+        ) as exc:
+            message = (
+                exc.public_message()
+                if isinstance(exc, MetricBuilderError)
+                else str(exc)
+            )
             return BuilderPreview(
                 valid=False,
-                errors=[str(exc)],
+                errors=[message],
                 warnings=[],
                 yaml_content=None,
                 compiled_plan_json=None,
+                prometheus_metric_name=None,
             )
 
     def create_metric_from_builder(
@@ -216,26 +190,7 @@ class MetricBuilderService:
         schema_definition_id: Optional[int] = None,
         yaml_version_label: Optional[str] = None,
     ) -> BuilderCreateResult:
-        """
-        Create a MetricDefinition and first YAML version from a builder intent.
-
-        Args:
-            event_type_id: EventType owning the metric.
-            code: Stable metric definition code.
-            name: Human-readable name.
-            description: Optional human-readable description.
-            intent: Business metric intent selected by the user.
-            value_path: Optional JSON path used as the metric value source.
-            labels: Mapping of Prometheus label names to JSON paths.
-            schema_definition_id: Optional schema used for validation.
-            yaml_version_label: Optional label for the generated YAML version.
-
-        Returns:
-            Created definition, version, YAML content, and warnings.
-
-        Raises:
-            ValueError: If the generated metric is not valid.
-        """
+        """Preserve the existing create flow while reusing strict preview rules."""
         preview = self.preview_metric(
             event_type_id=event_type_id,
             metric_code=code,
@@ -244,22 +199,21 @@ class MetricBuilderService:
             labels=labels,
             schema_definition_id=schema_definition_id,
         )
-
         if not preview.valid or preview.yaml_content is None:
-            raise ValueError("Metric builder preview is invalid: " + "; ".join(preview.errors))
+            raise MetricBuilderContractError("; ".join(preview.errors))
 
         schema_definition = self._resolve_schema_definition(
             event_type_id=event_type_id,
             schema_definition_id=schema_definition_id,
         )
-
-        metric_definition = self.metric_definition_admin_service.create_metric_definition(
-            event_type_id=event_type_id,
-            code=code,
-            name=name,
-            description=description,
+        metric_definition = (
+            self.metric_definition_admin_service.create_metric_definition(
+                event_type_id=event_type_id,
+                code=code,
+                name=name,
+                description=description,
+            )
         )
-
         metric_definition_version = (
             self.metric_definition_admin_service.create_metric_definition_version(
                 event_type_id=event_type_id,
@@ -269,7 +223,6 @@ class MetricBuilderService:
                 yaml_content=preview.yaml_content,
             )
         )
-
         return BuilderCreateResult(
             metric_definition=metric_definition,
             metric_definition_version=metric_definition_version,
@@ -277,33 +230,147 @@ class MetricBuilderService:
             warnings=preview.warnings,
         )
 
+    def _analyze(self, schema: dict[str, Any]) -> list[AnalyzedBuilderField]:
+        """Translate bounded-analysis errors into one public Builder error."""
+        try:
+            return self.schema_analyzer.analyze(schema)
+        except MetricBuilderSchemaAnalysisError as exc:
+            raise MetricBuilderUnsupportedError(str(exc)) from exc
+
     def _resolve_schema_definition(
         self,
         event_type_id: int,
         schema_definition_id: Optional[int],
     ) -> SchemaDefinition:
-        """
-        Resolve and validate the schema used by builder operations.
-        """
+        """Resolve an active or explicit schema and enforce exact scope."""
         if schema_definition_id is None:
             schema_definition = self.schema_repository.find_active_by_event_type(
-                event_type_id,
+                event_type_id
             )
         else:
-            schema_definition = self.schema_repository.find_by_id(
-                schema_definition_id,
-            )
-
+            schema_definition = self.schema_repository.find_by_id(schema_definition_id)
         if schema_definition is None:
-            raise ValueError("SchemaDefinition not found")
-
+            raise MetricBuilderNotFoundError("SchemaDefinition not found")
         if schema_definition.event_type_id != event_type_id:
-            raise ValueError(
-                f"SchemaDefinition id={schema_definition.id} does not belong "
-                f"to EventType id={event_type_id}"
+            raise MetricBuilderScopeError(
+                "SchemaDefinition belongs to another EventType"
             )
-
         return schema_definition
+
+    def _validate_metric_code_and_collision(
+        self,
+        *,
+        event_type_id: int,
+        metric_code: str,
+    ) -> str:
+        """Validate a bounded business code and its final Prometheus identity."""
+        if (
+            not metric_code
+            or len(metric_code) > 150
+            or _CONTROL_CHARACTER.search(metric_code)
+            or _METRIC_CODE.fullmatch(metric_code) is None
+        ):
+            raise MetricBuilderContractError(
+                "Metric code must be 1..150 characters from [A-Za-z0-9_.:-]"
+            )
+        final_name = normalize_prometheus_metric_name(metric_code)
+        for existing in self.metric_definition_repository.list_by_event_type(
+            event_type_id
+        ):
+            if normalize_prometheus_metric_name(existing.code) == final_name:
+                raise MetricBuilderNameCollisionError(
+                    f"Metric code collides with an existing Prometheus name '{final_name}'"
+                )
+        return final_name
+
+    def _validate_intent(
+        self,
+        *,
+        intent: str,
+        value_path: Optional[str],
+        labels: dict[str, str],
+        fields: list[AnalyzedBuilderField],
+    ) -> None:
+        """Enforce intent arity, schema membership, Counter, and label safety."""
+        if intent not in self.INTENT_TO_TRANSFORM:
+            raise MetricBuilderContractError(f"Unknown metric intent '{intent}'")
+        if len(labels) > self.limits.max_labels:
+            raise MetricBuilderContractError(
+                f"At most {self.limits.max_labels} labels are allowed"
+            )
+        by_path = {field.path: field for field in fields}
+
+        if intent == "count_event":
+            if value_path is not None or labels:
+                raise MetricBuilderContractError(
+                    "count_event accepts neither value_path nor labels"
+                )
+            return
+        if intent == "count_by_label":
+            if value_path is not None or len(labels) != 1:
+                raise MetricBuilderContractError(
+                    "count_by_label requires exactly one label and no value_path"
+                )
+        elif value_path is None:
+            raise MetricBuilderContractError(f"{intent} requires one value_path")
+
+        if value_path is not None:
+            field = self._require_field(value_path, by_path)
+            if field.analysis_status is SchemaAnalysisStatus.UNSUPPORTED:
+                raise MetricBuilderUnsupportedError(field.analysis_reason)
+            if intent not in field.value_intents:
+                if intent == "sum_value" and field.json_type in {"number", "integer"}:
+                    raise MetricBuilderUnsafeError(field.analysis_reason)
+                raise MetricBuilderContractError(
+                    f"Intent '{intent}' is incompatible with '{field.json_type}'"
+                )
+
+        normalized_label_names: set[str] = set()
+        for label_name, label_path in labels.items():
+            self._validate_label_name(label_name)
+            if label_name in normalized_label_names:
+                raise MetricBuilderContractError("Label names must be unique")
+            normalized_label_names.add(label_name)
+            field = self._require_field(label_path, by_path)
+            if not field.label_allowed:
+                error_type = (
+                    MetricBuilderUnsupportedError
+                    if field.analysis_status is SchemaAnalysisStatus.UNSUPPORTED
+                    else MetricBuilderUnsafeError
+                )
+                raise error_type(
+                    field.label_rejection_reason or "Selected label is unsafe"
+                )
+
+    def _require_field(
+        self,
+        path: str,
+        fields: dict[str, AnalyzedBuilderField],
+    ) -> AnalyzedBuilderField:
+        """Require exact membership in the canonical schema field inventory."""
+        if (
+            len(path) > self.limits.max_path_length
+            or _CONTROL_CHARACTER.search(path)
+            or path not in fields
+        ):
+            raise MetricBuilderContractError(
+                "Selected path is not a canonical field of this SchemaDefinition"
+            )
+        segments = path[2:].replace("[*]", "").split(".")
+        if len(segments) > self.limits.max_path_segments:
+            raise MetricBuilderContractError("Selected path has too many segments")
+        return fields[path]
+
+    def _validate_label_name(self, label_name: str) -> None:
+        """Validate a bounded, non-reserved Prometheus label name."""
+        if len(
+            label_name
+        ) > self.limits.max_label_name_length or _CONTROL_CHARACTER.search(label_name):
+            raise MetricBuilderContractError("Label name is invalid or too long")
+        try:
+            validate_prometheus_business_label_name(label_name)
+        except PrometheusRenderingError as exc:
+            raise MetricBuilderContractError(str(exc)) from exc
 
     def _build_metric_yaml(
         self,
@@ -312,212 +379,13 @@ class MetricBuilderService:
         value_path: Optional[str],
         labels: dict[str, str],
     ) -> dict[str, Any]:
-        """
-        Convert a business metric intent into the current YAML DSL structure.
-        """
-        transform = self.INTENT_TO_TRANSFORM.get(intent)
-
-        if transform is None:
-            raise ValueError(
-                f"Unsupported metric intent '{intent}'. Supported intents: "
-                f"{sorted(self.INTENT_TO_TRANSFORM)}"
-            )
-
+        """Map the six closed intents to the five executable transforms."""
+        transform = self.INTENT_TO_TRANSFORM[intent]
         observation: dict[str, Any] = {
             "code": metric_code,
             "transform": transform,
             "labels": labels,
         }
-
-        if transform == "constant":
-            if value_path is not None:
-                raise ValueError(
-                    f"Metric intent '{intent}' uses an implicit counter value; "
-                    "do not provide value_path."
-                )
-
-        else:
-            if value_path is None:
-                raise ValueError(
-                    f"Metric intent '{intent}' requires value_path."
-                )
+        if transform != "constant":
             observation["value_path"] = value_path
-
-        return {
-            "version": "1.0",
-            "observations": [observation],
-        }
-
-    def _flatten_schema(self, schema: dict[str, Any]) -> list[BuilderField]:
-        """
-        Flatten a JSON Schema into selectable field descriptors.
-        """
-        fields: list[BuilderField] = []
-        self._walk_schema_node(
-            schema=schema,
-            context=_FieldScanContext(path="$", required=True),
-            fields=fields,
-        )
-        return fields
-
-    def _walk_schema_node(
-        self,
-        schema: dict[str, Any],
-        context: _FieldScanContext,
-        fields: list[BuilderField],
-    ) -> None:
-        """
-        Recursively scan a JSON Schema node.
-        """
-        json_type = self._normalize_json_type(schema.get("type"))
-
-        if json_type == "object":
-            required_properties = set(schema.get("required", []))
-            properties = schema.get("properties", {})
-
-            if not isinstance(properties, dict):
-                return
-
-            for property_name, child_schema in properties.items():
-                if not isinstance(child_schema, dict):
-                    continue
-
-                child_path = f"{context.path}.{property_name}"
-                child_required = context.required and property_name in required_properties
-                self._walk_schema_node(
-                    schema=child_schema,
-                    context=_FieldScanContext(
-                        path=child_path,
-                        required=child_required,
-                    ),
-                    fields=fields,
-                )
-            return
-
-        fields.append(
-            self._build_field(
-                path=context.path,
-                json_type=json_type,
-                required=context.required,
-            )
-        )
-
-        if json_type == "array":
-            items_schema = schema.get("items")
-            if isinstance(items_schema, dict):
-                self._walk_schema_node(
-                    schema=items_schema,
-                    context=_FieldScanContext(
-                        path=f"{context.path}[*]",
-                        required=context.required,
-                    ),
-                    fields=fields,
-                )
-
-    def _build_field(
-        self,
-        path: str,
-        json_type: str,
-        required: bool,
-    ) -> BuilderField:
-        """
-        Build one field descriptor with allowed intents and warnings.
-        """
-        warnings = self._build_field_warnings(path=path, json_type=json_type)
-
-        return BuilderField(
-            path=path,
-            json_type=json_type,
-            required=required,
-            label_allowed=json_type in {"string", "integer", "boolean"},
-            value_intents=self._value_intents_for_type(json_type),
-            cardinality_risk=self._cardinality_risk(path=path, json_type=json_type),
-            warnings=warnings,
-        )
-
-    def _value_intents_for_type(self, json_type: str) -> list[str]:
-        """
-        Return metric intents supported by a JSON field type.
-        """
-        if json_type in {"number", "integer"}:
-            return ["sum_value"]
-
-        if json_type == "array":
-            return ["count_array_items"]
-
-        if json_type == "string":
-            return ["measure_string_length"]
-
-        if json_type == "boolean":
-            return ["count_boolean_true"]
-
-        return []
-
-    def _build_field_warnings(self, path: str, json_type: str) -> list[str]:
-        """
-        Build user-facing warnings for one field.
-        """
-        warnings: list[str] = []
-        field_name = path.split(".")[-1].replace("[*]", "")
-
-        if self.DANGEROUS_LABEL_PATTERN.search(field_name):
-            warnings.append(
-                "Field name looks like a unique identifier; avoid using it as a Prometheus label."
-            )
-
-        if json_type == "number":
-            warnings.append(
-                "Numeric fields are usually unsafe as labels because they can create many series."
-            )
-
-        return warnings
-
-    def _build_cardinality_warnings(self, labels: dict[str, str]) -> list[str]:
-        """
-        Build warnings for selected labels before metric creation.
-        """
-        warnings: list[str] = []
-
-        for label_name, label_path in labels.items():
-            path_tail = label_path.split(".")[-1].replace("[*]", "")
-
-            if self.DANGEROUS_LABEL_PATTERN.search(label_name):
-                warnings.append(
-                    f"Label '{label_name}' looks like a unique identifier and may explode cardinality."
-                )
-
-            if self.DANGEROUS_LABEL_PATTERN.search(path_tail):
-                warnings.append(
-                    f"Label '{label_name}' uses path '{label_path}', which looks like a unique identifier."
-                )
-
-        return warnings
-
-    def _cardinality_risk(self, path: str, json_type: str) -> str:
-        """
-        Estimate static cardinality risk from path naming and JSON type.
-        """
-        field_name = path.split(".")[-1].replace("[*]", "")
-
-        if self.DANGEROUS_LABEL_PATTERN.search(field_name):
-            return "high"
-
-        if json_type in {"string", "number"}:
-            return "medium"
-
-        return "low"
-
-    def _normalize_json_type(self, raw_type: Any) -> str:
-        """
-        Normalize JSON Schema type declarations to one simple type string.
-        """
-        if isinstance(raw_type, list):
-            for item in raw_type:
-                if isinstance(item, str) and item != "null":
-                    return item
-            return "unknown"
-
-        if isinstance(raw_type, str):
-            return raw_type
-
-        return "unknown"
+        return {"version": "1.0", "observations": [observation]}

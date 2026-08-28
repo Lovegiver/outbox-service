@@ -13,7 +13,6 @@ from app.services.metric_definition_admin_service import (
 )
 from app.services.metric_yaml_service import MetricYamlService
 
-
 VALID_YAML = """version: "1.0"
 observations:
   - code: products_sold_total
@@ -157,7 +156,7 @@ def test_preview_compiles_without_writing() -> None:
 
     preview = service.preview_metric_yaml(10, 30, VALID_YAML)
 
-    assert preview.compiled_plan_json["compiler_version"] == "1.0"
+    assert preview.compiled_plan_json["compiler_version"] == "1.1"
     assert versions.added == []
     assert session.commits == 0
     assert session.rollbacks == 0
@@ -302,9 +301,7 @@ def test_unknown_metric_definition_is_explicit() -> None:
     service, _, _, _ = _service(schema_definition=_schema_definition())
 
     with pytest.raises(MetricConfigurationNotFoundError, match="not found"):
-        service.create_metric_definition_version(
-            10, 999, 30, None, VALID_YAML
-        )
+        service.create_metric_definition_version(10, 999, 30, None, VALID_YAML)
 
 
 def test_metric_definition_outside_event_type_is_rejected() -> None:

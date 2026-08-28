@@ -8,7 +8,7 @@ def compile_metric_yaml_to_json(
 ) -> dict[str, object]:
     """Compile validated metric YAML into a deterministic runtime document."""
     return {
-        "compiler_version": "1.0",
+        "compiler_version": "1.1",
         "yaml_version": validated_metric_yaml.version,
         "observations": [
             {
@@ -18,6 +18,7 @@ def compile_metric_yaml_to_json(
                     "path": observation.value_path.path,
                     "json_type": observation.value_path.json_type,
                     "required": observation.value_path.required,
+                    "nullable": observation.value_path.nullable,
                     "iterator_path": observation.value_path.iterator_path,
                 },
                 "labels": [
@@ -25,17 +26,20 @@ def compile_metric_yaml_to_json(
                         "name": label_name,
                         "kind": "index" if label_path == "$index" else "path",
                         "path": None if label_path == "$index" else label_path.path,
-                        "json_type": None if label_path == "$index" else label_path.json_type,
-                        "required": None if label_path == "$index" else label_path.required,
+                        "json_type": None
+                        if label_path == "$index"
+                        else label_path.json_type,
+                        "required": None
+                        if label_path == "$index"
+                        else label_path.required,
+                        "nullable": None
+                        if label_path == "$index"
+                        else label_path.nullable,
                         "iterator_path": (
-                            None
-                            if label_path == "$index"
-                            else label_path.iterator_path
+                            None if label_path == "$index" else label_path.iterator_path
                         ),
                     }
-                    for label_name, label_path in sorted(
-                        observation.labels.items()
-                    )
+                    for label_name, label_path in sorted(observation.labels.items())
                 ],
             }
             for observation in validated_metric_yaml.observations
