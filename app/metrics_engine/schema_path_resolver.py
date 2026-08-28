@@ -12,6 +12,7 @@ class ResolvedPath:
     json_type: str
     iterator_path: str | None
     required: bool
+    nullable: bool
 
 
 class SchemaPathResolutionError(ValueError):
@@ -25,21 +26,24 @@ def resolve_path(schema_root: SchemaNode, path: str) -> ResolvedPath:
     current_path = "$"
     iterator_path: str | None = None
     required = True
+    nullable = current_node.nullable
 
     for token in tokens[1:]:
         if token.token_type == "property":
-            current_node, current_path, required = _resolve_property(
+            current_node, current_path, required, nullable = _resolve_property(
                 current_node=current_node,
                 property_name=_require_value(token),
                 current_path=current_path,
                 required=required,
+                nullable=nullable,
             )
             continue
 
         if token.token_type == "array_each":
-            current_node, current_path, iterator_path = _resolve_array_each(
+            current_node, current_path, iterator_path, nullable = _resolve_array_each(
                 current_node=current_node,
                 current_path=current_path,
+                nullable=nullable,
             )
             continue
 
@@ -50,6 +54,7 @@ def resolve_path(schema_root: SchemaNode, path: str) -> ResolvedPath:
         json_type=current_node.json_type,
         iterator_path=iterator_path,
         required=required,
+        nullable=nullable,
     )
 
 
@@ -58,7 +63,8 @@ def _resolve_property(
     property_name: str,
     current_path: str,
     required: bool,
-) -> tuple[SchemaNode, str, bool]:
+    nullable: bool,
+) -> tuple[SchemaNode, str, bool, bool]:
     if not isinstance(current_node, ObjectNode):
         raise SchemaPathResolutionError(
             f"Cannot access property '{property_name}' on non-object path '{current_path}'"
@@ -75,13 +81,15 @@ def _resolve_property(
         current_node.properties[property_name],
         f"{current_path}.{property_name}",
         required and child_required,
+        nullable or current_node.properties[property_name].nullable,
     )
 
 
 def _resolve_array_each(
     current_node: SchemaNode,
     current_path: str,
-) -> tuple[SchemaNode, str, str]:
+    nullable: bool,
+) -> tuple[SchemaNode, str, str, bool]:
     if not isinstance(current_node, ArrayNode):
         raise SchemaPathResolutionError(
             f"Cannot iterate with '[*]' on non-array path '{current_path}'"
@@ -93,6 +101,7 @@ def _resolve_array_each(
         current_node.items,
         iterator_path,
         iterator_path,
+        nullable or current_node.items.nullable,
     )
 
 

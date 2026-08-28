@@ -383,21 +383,12 @@ Scenarios pertinents manquants :
 
 ### Metric Builder
 
-Le Gherkin existe mais n'est pas executable.
-
-Scenarios pertinents :
-
-- lister les champs depuis le JSON Schema actif ;
-- lister les champs pour un schema id explicite ;
-- rejeter un schema inconnu ;
-- exposer path, type JSON, required, label_allowed, value_intents, cardinality_risk et warnings ;
-- preview `count_event` ;
-- preview `count_by_label` ;
-- warning sur labels a forte cardinalite ;
-- rejet d'intention incompatible avec le champ ;
-- creation de MetricDefinition et premiere version YAML ;
-- retour des warnings a la creation ;
-- rejet d'une requete builder invalide.
+La feature executable `metric_builder_schema_contract.feature` couvre
+BDD-016A : inspection conservatrice du schema, obligation imbriquee,
+nullabilite, six intents Counter, bornes de `sum_value`, politique statique des
+labels, chemins bornes, collisions Prometheus, entrees dangereuses inertes et
+absence de toute ecriture pendant la preview. La creation atomique,
+compatibilite et activation restent explicitement dans les lots suivants.
 
 ### Prometheus Metric State
 

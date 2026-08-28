@@ -66,6 +66,17 @@ Feature: Events
     Then the response should have status 400
     And no event should be persisted for project "Hermes" and event type "article.analyzed"
 
+  Scenario: Reject null when the active JSON Schema forbids it
+    Given the following projects are registered:
+      | name   | description           | owner email | owner role | project status |
+      | Hermes | Runtime observability |             |            | active         |
+    And project "Hermes" has event type "article.analyzed" named "Article analyzed"
+    And event type "article.analyzed" in project "Hermes" has active schema "article_analyzed.schema.v1.json"
+    And project "Hermes" has active API key "ingestion-key"
+    When event "article.analyzed" is submitted for project "Hermes" with payload "article_analyzed.invalid.null_required.json"
+    Then the response should have status 400
+    And no event should be persisted for project "Hermes" and event type "article.analyzed"
+
   Scenario: Reject Event ingestion when no active schema exists
     Given the following projects are registered:
       | name   | description           | owner email | owner role | project status |

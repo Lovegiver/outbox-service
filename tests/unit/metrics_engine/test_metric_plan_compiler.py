@@ -3,7 +3,6 @@ from copy import deepcopy
 from app.metrics_engine.metric_plan_compiler import compile_metric_yaml_to_json
 from app.metrics_engine.metric_yaml_validator import validate_metric_yaml
 
-
 JSON_SCHEMA = {
     "type": "object",
     "properties": {
@@ -39,7 +38,7 @@ def test_compile_metric_yaml_to_a_deterministic_complete_plan() -> None:
 
     assert first == second
     assert metric_yaml == original
-    assert first["compiler_version"] == "1.0"
+    assert first["compiler_version"] == "1.1"
     assert first["yaml_version"] == "1.0"
     observation = first["observations"][0]
     assert observation["metric_code"] == "revenue_total"
@@ -48,6 +47,7 @@ def test_compile_metric_yaml_to_a_deterministic_complete_plan() -> None:
         "path": "$.discount",
         "json_type": "number",
         "required": False,
+        "nullable": False,
         "iterator_path": None,
     }
     assert [label["name"] for label in observation["labels"]] == [
@@ -76,5 +76,63 @@ def test_compile_constant_without_a_value_path() -> None:
         "path": "",
         "json_type": "constant",
         "required": True,
+        "nullable": False,
         "iterator_path": None,
     }
+
+
+def test_compile_nullable_metadata_from_exact_schema() -> None:
+    validated = validate_metric_yaml(
+        {
+            "version": "1.0",
+            "observations": [
+                {
+                    "code": "optional_total",
+                    "transform": "identity",
+                    "value_path": "$.amount",
+                    "labels": {"active": "$.active"},
+                }
+            ],
+        },
+        {
+            "type": "object",
+            "properties": {
+                "amount": {"type": ["number", "null"]},
+                "active": {"type": ["boolean", "null"]},
+            },
+        },
+    )
+
+    compiled = compile_metric_yaml_to_json(validated)
+    observation = compiled["observations"][0]
+
+    assert observation["value"]["nullable"] is True
+    assert observation["labels"][0]["nullable"] is True
+
+
+def test_compile_nullable_array_items_without_order_bias() -> None:
+    validated = validate_metric_yaml(
+        {
+            "version": "1.0",
+            "observations": [
+                {
+                    "code": "item_total",
+                    "transform": "identity",
+                    "value_path": "$.values[*]",
+                }
+            ],
+        },
+        {
+            "type": "object",
+            "properties": {
+                "values": {
+                    "type": "array",
+                    "items": {"type": ["null", "number"]},
+                }
+            },
+        },
+    )
+
+    compiled = compile_metric_yaml_to_json(validated)
+
+    assert compiled["observations"][0]["value"]["nullable"] is True

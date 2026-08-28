@@ -62,6 +62,19 @@ class ConfigService:
             .get("max_delay_seconds", 600)
         )
 
+    def get_metric_builder_limits(self) -> dict[str, int]:
+        """Return bounded JSON Schema and Builder input limits."""
+        builder = self.config.get("metrics", {}).get("builder", {})
+        return {
+            "max_enum_values": int(builder.get("max_enum_values", 20)),
+            "max_labels": int(builder.get("max_labels", 5)),
+            "max_path_length": int(builder.get("max_path_length", 512)),
+            "max_path_segments": int(builder.get("max_path_segments", 32)),
+            "max_schema_depth": int(builder.get("max_schema_depth", 32)),
+            "max_schema_fields": int(builder.get("max_schema_fields", 1000)),
+            "max_label_name_length": int(builder.get("max_label_name_length", 128)),
+        }
+
     def get_delivery_timeout_seconds(self) -> int:
         return int(self.config.get("delivery", {}).get("timeout_seconds", 5))
 

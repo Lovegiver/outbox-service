@@ -20,20 +20,24 @@ def compiled_observation(
     required: bool = True,
     json_type: str = "constant",
     labels: list[dict] | None = None,
+    nullable: bool | None = None,
 ) -> dict:
+    value_definition = {
+        "path": path,
+        "json_type": json_type,
+        "required": required,
+        "iterator_path": None,
+    }
+    if nullable is not None:
+        value_definition["nullable"] = nullable
     return {
-        "compiler_version": "1.0",
+        "compiler_version": "1.1" if nullable is not None else "1.0",
         "yaml_version": "1.0",
         "observations": [
             {
                 "metric_code": "runtime_total",
                 "transform": transform,
-                "value": {
-                    "path": path,
-                    "json_type": json_type,
-                    "required": required,
-                    "iterator_path": None,
-                },
+                "value": value_definition,
                 "labels": labels or [],
             }
         ],
@@ -123,6 +127,44 @@ def test_optional_missing_value_skips_only_its_observation() -> None:
     assert result == []
 
 
+def test_nullable_value_is_no_measure_but_non_nullable_null_is_an_error() -> None:
+    nullable = compiled_observation(
+        transform="identity",
+        path="$.amount",
+        json_type="number",
+        nullable=True,
+    )
+    assert (
+        extract_keyed_observations_from_compiled_plan({"amount": None}, nullable) == []
+    )
+
+    non_nullable = compiled_observation(
+        transform="identity",
+        path="$.amount",
+        json_type="number",
+        nullable=False,
+    )
+    with pytest.raises(
+        ObservationExtractionError, match="METRIC_VALUE_NULL_NOT_ALLOWED"
+    ):
+        extract_keyed_observations_from_compiled_plan({"amount": None}, non_nullable)
+
+
+def test_nullable_array_skips_only_null_occurrences() -> None:
+    plan = compiled_observation(
+        transform="identity",
+        path="$.amounts[*]",
+        json_type="number",
+        nullable=True,
+    )
+
+    result = extract_keyed_observations_from_compiled_plan(
+        {"amounts": [None, 2, None, 3]}, plan
+    )
+
+    assert [item.observation.value for item in result] == [2.0, 3.0]
+
+
 def test_optional_missing_label_is_structurally_null() -> None:
     result = extract_keyed_observations_from_compiled_plan(
         {},
@@ -142,6 +184,53 @@ def test_optional_missing_label_is_structurally_null() -> None:
     )
 
     assert result[0].observation.dimensions == {"country": None}
+
+
+def test_nullable_label_preserves_counter_with_structural_null() -> None:
+    result = extract_keyed_observations_from_compiled_plan(
+        {"country": None},
+        compiled_observation(
+            transform="constant",
+            nullable=False,
+            labels=[
+                {
+                    "name": "country",
+                    "kind": "path",
+                    "path": "$.country",
+                    "json_type": "string",
+                    "required": True,
+                    "nullable": True,
+                    "iterator_path": None,
+                }
+            ],
+        ),
+    )
+
+    assert result[0].observation.value == 1.0
+    assert result[0].observation.dimensions == {"country": None}
+
+
+def test_null_label_for_non_nullable_or_historical_plan_is_explicit_error() -> None:
+    for nullable in (False, None):
+        label = {
+            "name": "country",
+            "kind": "path",
+            "path": "$.country",
+            "json_type": "string",
+            "required": True,
+            "iterator_path": None,
+        }
+        if nullable is not None:
+            label["nullable"] = nullable
+        plan = compiled_observation(
+            transform="constant",
+            nullable=nullable,
+            labels=[label],
+        )
+        with pytest.raises(
+            ObservationExtractionError, match="METRIC_LABEL_NULL_NOT_ALLOWED"
+        ):
+            extract_keyed_observations_from_compiled_plan({"country": None}, plan)
 
 
 def test_literal_missing_value_is_an_ordinary_business_label() -> None:

@@ -1,0 +1,12 @@
+{
+  "article_id": "art-2026-null",
+  "title": null,
+  "source": {"name": "Example", "country": "FR", "type": "media"},
+  "published_at": "2026-07-03T10:15:00Z",
+  "duration_seconds": 0,
+  "score": 0,
+  "is_priority": false,
+  "tags": ["test"],
+  "entities": [],
+  "metrics": {"word_count": 0, "sentiment": "neutral"}
+}
