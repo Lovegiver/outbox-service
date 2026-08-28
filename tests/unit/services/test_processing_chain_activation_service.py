@@ -15,8 +15,8 @@ from app.services.processing_chain_builder_service import (
 from app.services.processing_chain_errors import (
     ProcessingChainIncompleteError,
     ProcessingChainNotFoundError,
+    ProcessingChainPrometheusCollisionError,
 )
-
 
 COMPILED = {"compiler_version": "1.0", "observations": []}
 
@@ -99,14 +99,18 @@ class Builder:
         persisted=None,
         fail_persist=False,
         matching_ids=None,
+        prepare_error=None,
     ):
         self.prepared = prepared
         self.persisted = persisted
         self.fail_persist = fail_persist
         self.matching_ids = set(matching_ids or [])
+        self.prepare_error = prepare_error
         self.persist_calls = 0
 
     def prepare_chain(self, **_kwargs):
+        if self.prepare_error is not None:
+            raise self.prepare_error
         return self.prepared
 
     def signature_for_chain(self, _chain_id):
@@ -178,6 +182,7 @@ def _service(
     plans=None,
     fail_persist=False,
     matching_ids=None,
+    prepare_error=None,
 ):
     session = Session()
     schemas = Schemas(_schema())
@@ -191,6 +196,7 @@ def _service(
             if matching_ids is not None
             else ([] if candidate is None else [candidate.id])
         ),
+        prepare_error=prepare_error,
     )
     effective_plans = [_plan()] if active is not None and plans is None else plans
     service = ProcessingChainActivationService(
@@ -262,7 +268,7 @@ def test_rebuild_does_not_reuse_matching_incomplete_candidate() -> None:
 
 def test_changed_rebuild_leaves_old_chain_active() -> None:
     active = _chain(100, status="ACTIVE", active=True)
-    service, session, _, builder = _service(active=active)
+    service, session, _, _builder = _service(active=active)
 
     new_chain = service.rebuild_chain(7, 30)
 
@@ -275,7 +281,7 @@ def test_changed_rebuild_leaves_old_chain_active() -> None:
 
 def test_persistence_failure_rolls_back_and_leaves_old_chain_active() -> None:
     active = _chain(100, status="ACTIVE", active=True)
-    service, session, _, builder = _service(
+    service, session, _, _builder = _service(
         active=active,
         fail_persist=True,
     )
@@ -351,6 +357,29 @@ def test_activate_candidate_rejects_noncanonical_persisted_plan() -> None:
         service.activate_chain(7, 30, 100)
 
     assert candidate.is_active is False
+    assert session.rollbacks == 1
+
+
+def test_activation_collision_preserves_current_active_chain() -> None:
+    active = _chain(99, status="ACTIVE", active=True)
+    candidate = _chain(100, status="DRAFT", active=False, version=2)
+    service, session, _, _ = _service(
+        active=active,
+        candidate=candidate,
+        plans=[_plan()],
+        prepare_error=ProcessingChainPrometheusCollisionError(
+            "BUILDER_PROMETHEUS_NAME_COLLISION"
+        ),
+    )
+
+    with pytest.raises(ProcessingChainPrometheusCollisionError):
+        service.activate_chain(7, 30, candidate.id)
+
+    assert active.status == "ACTIVE"
+    assert active.is_active is True
+    assert candidate.status == "DRAFT"
+    assert candidate.is_active is False
+    assert session.commits == 0
     assert session.rollbacks == 1
 
 

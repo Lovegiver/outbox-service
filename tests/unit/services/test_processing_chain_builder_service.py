@@ -12,7 +12,10 @@ from app.services.processing_chain_builder_service import (
     PreparedProcessingPlan,
     ProcessingChainBuilderService,
 )
-from app.services.processing_chain_errors import ProcessingChainSelectionError
+from app.services.processing_chain_errors import (
+    ProcessingChainPrometheusCollisionError,
+    ProcessingChainSelectionError,
+)
 
 SCHEMA = {
     "type": "object",
@@ -165,6 +168,42 @@ def test_prepare_chain_rejects_cross_event_type_version() -> None:
             _schema(),
             [_version(20, 10, event_type_id=8)],
         )
+
+
+@pytest.mark.parametrize(
+    ("first_code", "second_code", "final_name"),
+    [
+        ("sales-total", "sales_total", "ob1_sales_total"),
+        ("sales", "ob1_sales", "ob1_sales"),
+    ],
+)
+def test_prepare_chain_rejects_prometheus_name_collisions(
+    first_code: str,
+    second_code: str,
+    final_name: str,
+) -> None:
+    first = _version(20, 10, code=first_code)
+    second = _version(21, 11, code=second_code)
+    builder, chains, plans = _builder({(20, 30), (21, 30)})
+
+    with pytest.raises(
+        ProcessingChainPrometheusCollisionError,
+        match=rf"BUILDER_PROMETHEUS_NAME_COLLISION:.*{final_name}",
+    ):
+        builder.prepare_chain(7, _schema(), [first, second])
+
+    assert chains.added == []
+    assert plans.added == []
+
+
+def test_prepare_chain_allows_same_metric_code_with_distinct_label_series() -> None:
+    first = _version(20, 10, code="requests_total")
+    second = _version(21, 11, code="requests_total")
+    builder, _, _ = _builder({(20, 30), (21, 30)})
+
+    prepared = builder.prepare_chain(7, _schema(), [first, second])
+
+    assert len(prepared.plans) == 2
 
 
 def test_compile_failure_before_persistence_leaves_no_partial_snapshot() -> None:
