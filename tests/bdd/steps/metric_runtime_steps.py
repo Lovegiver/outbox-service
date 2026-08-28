@@ -35,6 +35,8 @@ RUNTIME_SCHEMA = {
         "premium": {"type": "boolean"},
         "optional_amount": {"type": "number"},
         "optional_country": {"type": "string"},
+        "nullable_amount": {"type": ["number", "null"]},
+        "nullable_country": {"type": ["string", "null"]},
     },
     "required": ["amount", "items", "name", "active", "country", "premium"],
 }
@@ -44,7 +46,7 @@ def _state(ctx: TestContext) -> SimpleNamespace:
     state = getattr(ctx, "metric_runtime", None)
     if state is None:
         state = SimpleNamespace()
-        setattr(ctx, "metric_runtime", state)
+        ctx.metric_runtime = state
     return state
 
 
@@ -56,20 +58,24 @@ def _compiled(
     required: bool = True,
     json_type: str = "constant",
     labels: list[dict] | None = None,
+    nullable: bool | None = None,
 ) -> dict:
+    value_definition = {
+        "path": path,
+        "json_type": json_type,
+        "required": required,
+        "iterator_path": None,
+    }
+    if nullable is not None:
+        value_definition["nullable"] = nullable
     return {
-        "compiler_version": "1.0",
+        "compiler_version": "1.1" if nullable is not None else "1.0",
         "yaml_version": "1.0",
         "observations": [
             {
                 "metric_code": code,
                 "transform": transform,
-                "value": {
-                    "path": path,
-                    "json_type": json_type,
-                    "required": required,
-                    "iterator_path": None,
-                },
+                "value": value_definition,
                 "labels": labels or [],
             }
         ],
@@ -267,6 +273,54 @@ def absent_optional_value(ctx: TestContext) -> None:
     )
 
 
+@given("a runtime Event with an explicitly nullable null value")
+def nullable_null_value(ctx: TestContext) -> None:
+    _seed(
+        ctx,
+        plans=[
+            _compiled(
+                transform="identity",
+                path="$.nullable_amount",
+                required=False,
+                nullable=True,
+                json_type="number",
+            )
+        ],
+        payload={
+            "amount": 12,
+            "items": [],
+            "name": "shop",
+            "active": True,
+            "country": "FR",
+            "premium": True,
+            "nullable_amount": None,
+        },
+    )
+
+
+@given("a runtime Event with an incoherent non-nullable null value")
+def non_nullable_null_value(ctx: TestContext) -> None:
+    _seed(
+        ctx,
+        plans=[
+            _compiled(
+                transform="identity",
+                path="$.amount",
+                nullable=False,
+                json_type="number",
+            )
+        ],
+        payload={
+            "amount": None,
+            "items": [],
+            "name": "shop",
+            "active": True,
+            "country": "FR",
+            "premium": True,
+        },
+    )
+
+
 @given("a runtime Event with an absent optional label")
 def absent_optional_label(ctx: TestContext) -> None:
     labels = [
@@ -280,6 +334,59 @@ def absent_optional_label(ctx: TestContext) -> None:
         }
     ]
     _seed(ctx, plans=[_compiled(labels=labels)])
+
+
+@given("a runtime Event with an explicitly nullable null label")
+def nullable_null_label(ctx: TestContext) -> None:
+    labels = [
+        {
+            "name": "country",
+            "kind": "path",
+            "path": "$.nullable_country",
+            "json_type": "string",
+            "required": False,
+            "nullable": True,
+            "iterator_path": None,
+        }
+    ]
+    _seed(
+        ctx,
+        plans=[_compiled(labels=labels, nullable=False)],
+        payload={
+            "amount": 12,
+            "items": [],
+            "name": "shop",
+            "active": True,
+            "country": "FR",
+            "premium": True,
+            "nullable_country": None,
+        },
+    )
+
+
+@given(parsers.parse("a runtime Event with a zero-valued {transform} transform"))
+def zero_valued_transform(ctx: TestContext, transform: str) -> None:
+    cases = {
+        "identity": ("$.amount", "number", 0),
+        "count": ("$.items", "array", []),
+        "length": ("$.name", "string", ""),
+        "to_number": ("$.active", "boolean", False),
+    }
+    path, json_type, zero_value = cases[transform]
+    payload = {
+        "amount": 12,
+        "items": [1],
+        "name": "shop",
+        "active": True,
+        "country": "FR",
+        "premium": True,
+    }
+    payload[path[2:]] = zero_value
+    _seed(
+        ctx,
+        plans=[_compiled(transform=transform, path=path, json_type=json_type)],
+        payload=payload,
+    )
 
 
 @given("a runtime Event whose country label equals __missing__")

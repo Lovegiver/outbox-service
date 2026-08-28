@@ -10,7 +10,6 @@ from tests.domain.record import (
 )
 from tests.infrastructure.context import TestContext
 
-
 YAML_DOCUMENTS = {
     "valid counter": """version: "1.0"
 observations:
@@ -78,7 +77,7 @@ def _state(ctx: TestContext) -> dict[str, Any]:
             "metric_definitions": {},
             "submitted_yaml": {},
         }
-        setattr(ctx, "metric_yaml_state", state)
+        ctx.metric_yaml_state = state
     return state
 
 
@@ -270,8 +269,7 @@ def _request_yaml_operation(
     )
     schema = _state(ctx)["schemas"][schema_key]
     ctx.last_response = ctx.client.post(
-        f"/api/admin/event-types/{event_type.id}/metric-definitions/yaml/"
-        f"{operation}",
+        f"/api/admin/event-types/{event_type.id}/metric-definitions/yaml/{operation}",
         json={
             "schema_definition_id": schema.id,
             "yaml_content": YAML_DOCUMENTS[yaml_name],
@@ -292,9 +290,7 @@ def yaml_is_previewed(
     event_type_code: str,
     project_name: str,
 ) -> None:
-    _request_yaml_operation(
-        ctx, "preview", yaml_name, project_name, event_type_code
-    )
+    _request_yaml_operation(ctx, "preview", yaml_name, project_name, event_type_code)
 
 
 @when(
@@ -309,9 +305,7 @@ def yaml_is_validated(
     event_type_code: str,
     project_name: str,
 ) -> None:
-    _request_yaml_operation(
-        ctx, "validate", yaml_name, project_name, event_type_code
-    )
+    _request_yaml_operation(ctx, "validate", yaml_name, project_name, event_type_code)
 
 
 @when(
@@ -375,14 +369,15 @@ def remember_yaml_version_count(ctx: TestContext) -> None:
 
 @then("the YAML version count should be unchanged")
 def yaml_version_count_is_unchanged(ctx: TestContext) -> None:
-    assert ctx.probe.metric_definition_version.count() == _state(ctx)[
-        "remembered_version_count"
-    ]
+    assert (
+        ctx.probe.metric_definition_version.count()
+        == _state(ctx)["remembered_version_count"]
+    )
 
 
 @then(
     parsers.parse(
-        'YAML version {version_number:d} should be persisted exactly for '
+        "YAML version {version_number:d} should be persisted exactly for "
         'metric definition "{metric_code}"'
     )
 )
@@ -400,16 +395,13 @@ def yaml_version_is_persisted_exactly(
         metric_definition,
         version_number,
     )
-    assert row["yaml_content"] == _state(ctx)["submitted_yaml"][
-        metric_definition.id
-    ]
+    assert row["yaml_content"] == _state(ctx)["submitted_yaml"][metric_definition.id]
     assert row["is_active"] is True
 
 
 @then(
     parsers.parse(
-        'no YAML version should be persisted for metric definition '
-        '"{metric_code}"'
+        'no YAML version should be persisted for metric definition "{metric_code}"'
     )
 )
 def no_yaml_version_is_persisted(ctx: TestContext, metric_code: str) -> None:
@@ -445,9 +437,7 @@ def yaml_validation_is_valid(ctx: TestContext) -> None:
 
 
 @then(
-    parsers.parse(
-        'the YAML validation should be invalid with error "{expected_error}"'
-    )
+    parsers.parse('the YAML validation should be invalid with error "{expected_error}"')
 )
 def yaml_validation_is_invalid(
     ctx: TestContext,
@@ -459,11 +449,7 @@ def yaml_validation_is_invalid(
     assert expected_error in payload["errors"][0]
 
 
-@then(
-    parsers.parse(
-        'the YAML preview should be invalid with error "{expected_error}"'
-    )
-)
+@then(parsers.parse('the YAML preview should be invalid with error "{expected_error}"'))
 def yaml_preview_is_invalid(
     ctx: TestContext,
     expected_error: str,
@@ -495,7 +481,7 @@ def compiled_preview_describes_counter(
 ) -> None:
     assert ctx.last_response is not None
     compiled = ctx.last_response.json()["compiled_plan_json"]
-    assert compiled["compiler_version"] == "1.0"
+    assert compiled["compiler_version"] == "1.1"
     observation = compiled["observations"][0]
     assert observation["metric_code"] == metric_code
     assert observation["transform"] == "constant"
@@ -506,6 +492,7 @@ def compiled_preview_describes_counter(
             "path": "$.country",
             "json_type": "string",
             "required": True,
+            "nullable": False,
             "iterator_path": None,
         }
     ]
@@ -521,8 +508,7 @@ def version_history_contains(ctx: TestContext, versions: str) -> None:
 
 @then(
     parsers.parse(
-        'YAML version {version_number:d} should still contain counter '
-        '"{metric_code}"'
+        'YAML version {version_number:d} should still contain counter "{metric_code}"'
     )
 )
 def yaml_history_remains_immutable(

@@ -70,12 +70,40 @@ Feature: Execute compiled metric ProcessingPlans at Event runtime
     When the runtime worker routes and processes its metric plans
     Then the metric plan succeeds without an observation
 
+  Scenario: Skip an explicitly nullable value
+    Given a runtime Event with an explicitly nullable null value
+    When the runtime worker routes and processes its metric plans
+    Then the metric plan succeeds without an observation
+
+  Scenario: Reject a null value that bypassed a non-nullable schema
+    Given a runtime Event with an incoherent non-nullable null value
+    When the runtime worker routes and processes its metric plans
+    Then the metric plan fails permanently with a non-nullable error
+    And routing still creates its delivery
+
   Scenario: Preserve an absent optional label structurally
     Given a runtime Event with an absent optional label
     When the runtime worker routes and processes its metric plans
     Then the observation stores a null country dimension
     And metric aggregation preserves the null country partition
     And Prometheus omits the null country label
+
+  Scenario: Preserve an explicitly nullable label structurally
+    Given a runtime Event with an explicitly nullable null label
+    When the runtime worker routes and processes its metric plans
+    Then the observation stores a null country dimension
+
+  Scenario Outline: Preserve real zero-valued Counter contributions
+    Given a runtime Event with a zero-valued <transform> transform
+    When the runtime worker routes and processes its metric plans
+    Then the metric value is 0
+
+    Examples:
+      | transform |
+      | identity  |
+      | count     |
+      | length    |
+      | to_number |
 
   Scenario: Preserve a real business label equal to __missing__
     Given a runtime Event whose country label equals __missing__

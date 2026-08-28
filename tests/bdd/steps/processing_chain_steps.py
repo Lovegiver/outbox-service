@@ -13,7 +13,6 @@ from tests.domain.record import (
 )
 from tests.infrastructure.context import TestContext
 
-
 YAML_DOCUMENTS = {
     "valid amount": """version: "1.0"
 observations:
@@ -92,7 +91,7 @@ def _state(ctx: TestContext) -> dict[str, Any]:
             "definitions": {},
             "candidate_id": None,
         }
-        setattr(ctx, "processing_chain_state", state)
+        ctx.processing_chain_state = state
     return state
 
 
@@ -169,8 +168,7 @@ def metric_yaml_version_exists(
 
 @given(
     parsers.parse(
-        'version "{version_name}" is already compatible with schema '
-        '"{schema_name}"'
+        'version "{version_name}" is already compatible with schema "{schema_name}"'
     )
 )
 def version_is_already_compatible(
@@ -202,8 +200,7 @@ def _declare_compatibility(
 
 @when(
     parsers.parse(
-        'version "{version_name}" is declared compatible with schema '
-        '"{schema_name}"'
+        'version "{version_name}" is declared compatible with schema "{schema_name}"'
     )
 )
 @when(
@@ -227,7 +224,7 @@ def version_is_declared_compatible(
 
 @when(
     parsers.parse(
-        'unknown YAML version {version_id:d} is declared compatible with '
+        "unknown YAML version {version_id:d} is declared compatible with "
         'schema "{schema_name}"'
     )
 )
@@ -236,15 +233,13 @@ def unknown_version_is_declared_compatible(
     version_id: int,
     schema_name: str,
 ) -> None:
-    _declare_compatibility(
-        ctx, version_id, _state(ctx)["schemas"][schema_name].id
-    )
+    _declare_compatibility(ctx, version_id, _state(ctx)["schemas"][schema_name].id)
 
 
 @when(
     parsers.parse(
         'version "{version_name}" is declared compatible with unknown schema '
-        '{schema_id:d}'
+        "{schema_id:d}"
     )
 )
 def version_is_declared_against_unknown_schema(
@@ -252,15 +247,13 @@ def version_is_declared_against_unknown_schema(
     version_name: str,
     schema_id: int,
 ) -> None:
-    _declare_compatibility(
-        ctx, _state(ctx)["versions"][version_name].id, schema_id
-    )
+    _declare_compatibility(ctx, _state(ctx)["versions"][version_name].id, schema_id)
 
 
 @then(
     parsers.parse(
         'compatibility "{version_name}" to schema "{schema_name}" should '
-        'exist exactly once'
+        "exist exactly once"
     )
 )
 def compatibility_exists_once(
@@ -280,8 +273,7 @@ def compatibility_exists_once(
 
 @then(
     parsers.parse(
-        'compatibility "{version_name}" to schema "{schema_name}" should '
-        'not exist'
+        'compatibility "{version_name}" to schema "{schema_name}" should not exist'
     )
 )
 def compatibility_does_not_exist(
@@ -314,13 +306,23 @@ def _rebuild(ctx: TestContext, schema_name: str) -> None:
         state["rebuilt_candidate_id"] = state["candidate_id"]
 
 
-@when(parsers.parse('the processing chain is explicitly rebuilt for schema "{schema_name}"'))
-@when(parsers.parse('the processing chain is explicitly rebuilt for schema "{schema_name}" again'))
+@when(
+    parsers.parse(
+        'the processing chain is explicitly rebuilt for schema "{schema_name}"'
+    )
+)
+@when(
+    parsers.parse(
+        'the processing chain is explicitly rebuilt for schema "{schema_name}" again'
+    )
+)
 def processing_chain_is_rebuilt(ctx: TestContext, schema_name: str) -> None:
     _rebuild(ctx, schema_name)
 
 
-@given(parsers.parse('the processing chain has been rebuilt for schema "{schema_name}"'))
+@given(
+    parsers.parse('the processing chain has been rebuilt for schema "{schema_name}"')
+)
 def processing_chain_has_been_rebuilt(ctx: TestContext, schema_name: str) -> None:
     _rebuild(ctx, schema_name)
     assert ctx.last_response.status_code == 200
@@ -342,7 +344,11 @@ def _activate_candidate(
 
 
 @given(parsers.parse('the processing chain is active for schema "{schema_name}"'))
-@when(parsers.parse('the processing chain is built and activated for schema "{schema_name}"'))
+@when(
+    parsers.parse(
+        'the processing chain is built and activated for schema "{schema_name}"'
+    )
+)
 def processing_chain_is_built_and_activated(
     ctx: TestContext,
     schema_name: str,
@@ -355,8 +361,7 @@ def processing_chain_is_built_and_activated(
 
 @when(
     parsers.parse(
-        'the rebuilt candidate is explicitly activated for schema '
-        '"{schema_name}"'
+        'the rebuilt candidate is explicitly activated for schema "{schema_name}"'
     )
 )
 def rebuilt_candidate_is_activated(
@@ -376,14 +381,12 @@ def no_processing_snapshot(ctx: TestContext, schema_name: str) -> None:
     state = _state(ctx)
     schema = state["schemas"][schema_name]
     event_type = schema.event_type
-    assert ctx.probe.processing_chain.count_by_scope(
-        event_type, schema
-    ) == 0
+    assert ctx.probe.processing_chain.count_by_scope(event_type, schema) == 0
 
 
 @then(
     parsers.parse(
-        'active processing chain version {version_number:d} should exist for '
+        "active processing chain version {version_number:d} should exist for "
         'schema "{schema_name}"'
     )
 )
@@ -403,7 +406,7 @@ def active_chain_version_exists(
 
 @then(
     parsers.parse(
-        'draft processing chain version {version_number:d} should exist for '
+        "draft processing chain version {version_number:d} should exist for "
         'schema "{schema_name}"'
     )
 )
@@ -426,13 +429,9 @@ def compiled_plans_reference_versions(
     version_names: str,
 ) -> None:
     state = _state(ctx)
-    chain_id = state.get("last_candidate_chain_id") or state.get(
-        "last_active_chain_id"
-    )
+    chain_id = state.get("last_candidate_chain_id") or state.get("last_active_chain_id")
     plans = ctx.probe.processing_plan.list_by_chain_id(chain_id)
-    expected = {
-        state["versions"][name].id for name in version_names.split(",")
-    }
+    expected = {state["versions"][name].id for name in version_names.split(",")}
     assert {plan["metric_definition_version_id"] for plan in plans} == expected
 
 
@@ -441,13 +440,10 @@ def compiled_plans_reference_versions(
 def every_plan_is_compiled(ctx: TestContext) -> None:
     state = _state(ctx)
     chain_id = state.get("candidate_id") or state.get("last_active_chain_id")
-    plans = ctx.probe.processing_plan.list_by_chain_id(
-        chain_id
-    )
+    plans = ctx.probe.processing_plan.list_by_chain_id(chain_id)
     assert plans
     assert all(
-        plan["compiled_plan_json"].get("compiler_version") == "1.0"
-        for plan in plans
+        plan["compiled_plan_json"].get("compiler_version") == "1.1" for plan in plans
     )
 
 
@@ -456,7 +452,9 @@ def no_observation_was_produced(ctx: TestContext) -> None:
     assert ctx.probe.analytical_observation.count() == 0
 
 
-@when(parsers.parse('the active chain identity for schema "{schema_name}" is remembered'))
+@when(
+    parsers.parse('the active chain identity for schema "{schema_name}" is remembered')
+)
 def remember_active_chain(ctx: TestContext, schema_name: str) -> None:
     state = _state(ctx)
     row = ctx.probe.processing_chain.get_active_by_scope(
@@ -480,7 +478,7 @@ def rebuilt_candidate_is_unchanged(ctx: TestContext) -> None:
 
 @then(
     parsers.parse(
-        'the rebuilt candidate identity should equal the active chain identity '
+        "the rebuilt candidate identity should equal the active chain identity "
         'for schema "{schema_name}"'
     )
 )
@@ -492,7 +490,11 @@ def rebuilt_candidate_equals_active(
     assert state["rebuilt_candidate_id"] == state[f"remembered:{schema_name}"]
 
 
-@then(parsers.parse('the active chain identity for schema "{schema_name}" should be unchanged'))
+@then(
+    parsers.parse(
+        'the active chain identity for schema "{schema_name}" should be unchanged'
+    )
+)
 def active_chain_is_unchanged(ctx: TestContext, schema_name: str) -> None:
     state = _state(ctx)
     schema = state["schemas"][schema_name]
@@ -503,17 +505,32 @@ def active_chain_is_unchanged(ctx: TestContext, schema_name: str) -> None:
     assert row["id"] == state[f"remembered:{schema_name}"]
 
 
-@then(parsers.parse('exactly {count:d} processing chain should exist for schema "{schema_name}"'))
-@then(parsers.parse('exactly {count:d} processing chains should exist for schema "{schema_name}"'))
+@then(
+    parsers.parse(
+        'exactly {count:d} processing chain should exist for schema "{schema_name}"'
+    )
+)
+@then(
+    parsers.parse(
+        'exactly {count:d} processing chains should exist for schema "{schema_name}"'
+    )
+)
 def processing_chain_count(ctx: TestContext, count: int, schema_name: str) -> None:
     state = _state(ctx)
-    assert ctx.probe.processing_chain.count_by_scope(
-        _event_type(ctx, "Hermes", "product.sold"),
-        state["schemas"][schema_name],
-    ) == count
+    assert (
+        ctx.probe.processing_chain.count_by_scope(
+            _event_type(ctx, "Hermes", "product.sold"),
+            state["schemas"][schema_name],
+        )
+        == count
+    )
 
 
-@then(parsers.parse('only one processing chain should be active for schema "{schema_name}"'))
+@then(
+    parsers.parse(
+        'only one processing chain should be active for schema "{schema_name}"'
+    )
+)
 def only_one_chain_is_active(ctx: TestContext, schema_name: str) -> None:
     state = _state(ctx)
     schema = state["schemas"][schema_name]
@@ -534,7 +551,9 @@ def only_one_chain_is_active(ctx: TestContext, schema_name: str) -> None:
     assert result.scalar_one() == 1
 
 
-@then(parsers.parse('no active processing chain should exist for schema "{schema_name}"'))
+@then(
+    parsers.parse('no active processing chain should exist for schema "{schema_name}"')
+)
 def no_active_chain(ctx: TestContext, schema_name: str) -> None:
     state = _state(ctx)
     schema = state["schemas"][schema_name]
@@ -557,9 +576,7 @@ def _propagate(ctx: TestContext, source_name: str, target_name: str) -> None:
             ),
             "plans": ctx.probe.processing_plan.count(),
         }
-    state["yaml_count_before_propagation"] = (
-        ctx.probe.metric_definition_version.count()
-    )
+    state["yaml_count_before_propagation"] = ctx.probe.metric_definition_version.count()
     if ctx.probe.processing_chain.exists_active_by_scope(event_type, source):
         state["source_chain_before_propagation"] = (
             ctx.probe.processing_chain.get_active_by_scope(event_type, source)["id"]
@@ -599,8 +616,8 @@ def compatibilities_are_propagated(
 
 @then(
     parsers.parse(
-        'the propagation should report {compatible:d} compatible and '
-        '{incompatible:d} incompatible metrics'
+        "the propagation should report {compatible:d} compatible and "
+        "{incompatible:d} incompatible metrics"
     )
 )
 def propagation_counts(
@@ -642,9 +659,10 @@ def propagation_candidate_is_incomplete(ctx: TestContext) -> None:
 @then("no new YAML version should have been created")
 def no_new_yaml_version(ctx: TestContext) -> None:
     state = _state(ctx)
-    assert ctx.probe.metric_definition_version.count() == state[
-        "yaml_count_before_propagation"
-    ]
+    assert (
+        ctx.probe.metric_definition_version.count()
+        == state["yaml_count_before_propagation"]
+    )
 
 
 @then("the propagation should report an optional-field runtime warning")
@@ -659,13 +677,16 @@ def repeated_propagation_creates_nothing(ctx: TestContext) -> None:
     target = state["schemas"]["v2"]
     event_type = _event_type(ctx, "Hermes", "product.sold")
     remembered = state["counts_before_repeated_propagation"]
-    assert ctx.probe.processing_chain.count_by_scope(event_type, target) == remembered[
-        "chains"
-    ]
+    assert (
+        ctx.probe.processing_chain.count_by_scope(event_type, target)
+        == remembered["chains"]
+    )
     assert ctx.probe.processing_plan.count() == remembered["plans"]
 
 
-@when(parsers.parse('the propagation candidate is activated for schema "{schema_name}"'))
+@when(
+    parsers.parse('the propagation candidate is activated for schema "{schema_name}"')
+)
 def activate_propagation_candidate(ctx: TestContext, schema_name: str) -> None:
     _activate_candidate(
         ctx,
