@@ -17,5 +17,9 @@ class ProcessingChainConflictError(ProcessingChainError):
     """Raised when a concurrent or state transition conflicts."""
 
 
+class ProcessingChainPrometheusCollisionError(ProcessingChainConflictError):
+    """Raised when one snapshot contains ambiguous Prometheus metric names."""
+
+
 class ProcessingChainNotFoundError(ProcessingChainError):
     """Raised when a requested processing chain does not exist."""

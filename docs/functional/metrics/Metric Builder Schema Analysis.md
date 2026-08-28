@@ -1,13 +1,14 @@
 # Metric Builder Schema Analysis
 
-## BDD-016A and BDD-016B boundaries
+## BDD-016 lifecycle boundaries
 
 BDD-016A is the read-only configuration analysis boundary. It enriches
 `schema-fields` and hardens `preview`. BDD-016B adds the atomic `create`
 boundary: it persists one `MetricDefinition`, its first immutable
 `MetricDefinitionVersion`, and the compatibility with the exact selected
-`SchemaDefinition` in one transaction. BDD-016C remains responsible for the
-explicit rebuild and activation lifecycle.
+`SchemaDefinition` in one transaction. BDD-016C validates the complete public
+lifecycle through explicit rebuild, explicit activation, real Events, workers,
+MetricState and Prometheus.
 
 The exact `SchemaDefinition.json_schema` is the only source of truth for a
 field's type, required character and nullability. The Builder never asks the
@@ -94,8 +95,9 @@ The final Prometheus metric name is centrally calculated and returned as
 read-only preview data. Existing codes are compared by their final normalized
 name, so `sales-total` and `sales_total`, or `sales` and `ob1_sales`, cannot
 silently converge. BDD-016B repeats that check under the stable EventType
-scope lock. The renderer remains defensive, and BDD-016C must retain the
-definitive check when a future snapshot is rebuilt or activated.
+scope lock. BDD-016C repeats it over the complete snapshot both during rebuild
+and, under the exact schema lock, during activation. Historical or alternate
+administration paths cannot bypass it. The renderer remains defensive.
 
 SQLAlchemy repositories use bound parameters and no Builder input controls a
 table, column or SQL clause. Free text such as apostrophes or markup is stored
@@ -138,13 +140,36 @@ definition key, version number and exact compatibility.
 
 Creation does not create a `ProcessingChain` or `ProcessingPlan`, does not
 change an ACTIVE chain, and never invokes Event runtime processing. Rebuild
-and activation remain explicit BDD-016C operations.
+and activation remain explicit operations. A rebuild creates or reuses a
+complete inactive DRAFT and preserves the current ACTIVE chain. Activation
+revalidates the frozen snapshot before atomically retiring the previous ACTIVE
+chain. Neither operation processes historical Events.
 
-## Performance follow-up
+## End-to-end isolation and concurrency
 
-BDD-016A adds no load harness or premature instrumentation. BDD-016C retains a
-representative PostgreSQL baseline: 100 Events of about 1 KiB, five Counter
-plans, four concurrent producers, one worker and a metric batch of 100. It
-must separately report ingress latency, queue wait, plan duration,
-observation/MetricState availability, end-to-end latency and backlog drain,
-without an initial blocking threshold.
+Runtime selection uses persisted EventType and SchemaDefinition identities,
+not structural JSON Schema equality. Two EventTypes with identical schema
+documents therefore keep separate compatibilities, ProcessingChains,
+executions, MetricState streams and platform-labelled Prometheus series.
+
+Metric workers acquire both `MetricPlanExecution` and its
+`MetricProcessingExecution` parent with PostgreSQL `FOR UPDATE SKIP LOCKED`.
+This serializes plans of one Event snapshot while allowing two workers to drain
+different Events concurrently. The demonstrated multi-worker guarantee applies
+to metric-plan acquisition. Routing is materialized before it, and the BDD-016C
+proof uses one aggregator; it does not claim concurrent aggregation workers.
+
+## Initial performance baseline
+
+`uv run python -m tests.performance.metric_pipeline_baseline` runs the representative
+PostgreSQL profile: 100 Events of about 1 KiB, five Counter plans, four
+concurrent HTTP producers, one metric worker and a metric batch of 100. It
+reports ingress latency, queue wait, plan duration, observation and MetricState
+availability, end-to-end latency, throughput and backlog drain as JSON and
+Markdown under `/tmp` by default. A manual `workflow_dispatch` can publish the
+same reports as CI artifacts.
+
+Durable counts, exact MetricState deltas, duplicate detection and a bounded
+completion timeout are blocking. Median, p95, p99, maximum and throughput are
+observations only. Shared runners make this a comparative baseline, not an SLA
+or an absolute capacity statement.

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.metrics_engine.prometheus_renderer import normalize_prometheus_metric_name
 from app.models.metric_definition_version import MetricDefinitionVersion
 from app.models.processing_chain import ProcessingChain
 from app.models.processing_plan import ProcessingPlan
@@ -15,7 +16,10 @@ from app.repositories.metric_definition_version_schema_repository import (
 from app.repositories.processing_chain_repository import ProcessingChainRepository
 from app.repositories.processing_plan_repository import ProcessingPlanRepository
 from app.services.metric_yaml_service import MetricYamlService
-from app.services.processing_chain_errors import ProcessingChainSelectionError
+from app.services.processing_chain_errors import (
+    ProcessingChainPrometheusCollisionError,
+    ProcessingChainSelectionError,
+)
 
 
 @dataclass(frozen=True)
@@ -131,11 +135,37 @@ class ProcessingChainBuilderService:
             )
             seen_metric_definitions.add(metric_version.metric_definition_id)
 
+        self._validate_prometheus_identities(plans)
         return PreparedProcessingChain(
             event_type_id=event_type_id,
             schema_definition_id=schema_definition.id,
             plans=tuple(plans),
         )
+
+    @staticmethod
+    def _validate_prometheus_identities(
+        plans: list[PreparedProcessingPlan],
+    ) -> None:
+        """Reject distinct metric codes converging to one runtime family."""
+        source_codes: dict[str, set[str]] = {}
+        for plan in plans:
+            for observation in plan.compiled_plan_json.get("observations", []):
+                metric_code = observation.get("metric_code")
+                if not isinstance(metric_code, str) or not metric_code:
+                    raise ProcessingChainSelectionError(
+                        "A compiled observation requires a non-empty metric code"
+                    )
+                final_name = normalize_prometheus_metric_name(metric_code)
+                source_codes.setdefault(final_name, set()).add(metric_code)
+
+        for final_name, metric_codes in sorted(source_codes.items()):
+            if len(metric_codes) <= 1:
+                continue
+            codes = ", ".join(sorted(metric_codes))
+            raise ProcessingChainPrometheusCollisionError(
+                "BUILDER_PROMETHEUS_NAME_COLLISION: metric codes "
+                f"{codes} normalize to '{final_name}' in the same EventType snapshot"
+            )
 
     def persist_chain(
         self,
@@ -185,12 +215,9 @@ class ProcessingChainBuilderService:
         prepared: PreparedProcessingChain,
     ) -> bool:
         """Return whether a stored chain is a complete copy of ``prepared``."""
-        plans = self.processing_plan_repository.list_by_chain_id(
-            processing_chain_id
-        )
+        plans = self.processing_plan_repository.list_by_chain_id(processing_chain_id)
         if not plans or any(
-            not plan.is_active or plan.compiled_plan_json is None
-            for plan in plans
+            not plan.is_active or plan.compiled_plan_json is None for plan in plans
         ):
             return False
         return self.signature_for_chain(processing_chain_id) == prepared.signature
@@ -202,9 +229,7 @@ class ProcessingChainBuilderService:
         """Load the stable functional identity of a persisted snapshot."""
         import json
 
-        plans = self.processing_plan_repository.list_by_chain_id(
-            processing_chain_id
-        )
+        plans = self.processing_plan_repository.list_by_chain_id(processing_chain_id)
         return tuple(
             (
                 plan.metric_definition_id,

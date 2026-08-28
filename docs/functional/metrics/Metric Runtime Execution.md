@@ -46,7 +46,11 @@ transaction/savepoint: a failure rolls back every observation of that plan but
 does not undo successful plans, routing or deliveries. Metric retries never
 replay a delivery.
 
-Workers acquire eligible rows with `FOR UPDATE SKIP LOCKED`. The retry budget,
+Workers acquire eligible rows with `FOR UPDATE SKIP LOCKED`. Acquisition locks
+both the selected `MetricPlanExecution` and its stable
+`MetricProcessingExecution` parent. A second worker therefore skips sibling
+plans of the same Event snapshot and can acquire a different Event without
+waiting on the parent status row. The retry budget,
 initial/capped exponential delay and batch size come from the `metrics.execution`
 runtime configuration. Repositories never commit or roll back.
 

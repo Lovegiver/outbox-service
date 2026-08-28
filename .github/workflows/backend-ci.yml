@@ -2,6 +2,12 @@ name: Backend CI
 
 on:
   workflow_dispatch:
+    inputs:
+      metric_baseline:
+        description: Run the non-contractual 100-Event metric baseline
+        required: false
+        default: false
+        type: boolean
   pull_request:
   push:
     branches:
@@ -76,6 +82,49 @@ jobs:
 
       - name: Run complete backend test suite
         run: uv run pytest -q
+
+      - name: Start API for the optional metric baseline
+        if: github.event_name == 'workflow_dispatch' && inputs.metric_baseline
+        run: |
+          mkdir -p .artifacts/metric-baseline
+          OB1_ENABLE_EMBEDDED_WORKER=false \
+            uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 \
+            > .artifacts/metric-baseline/api.log 2>&1 &
+          echo $! > .artifacts/metric-baseline/api.pid
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 0.5
+          done
+          exit 1
+
+      - name: Run optional metric pipeline baseline
+        if: github.event_name == 'workflow_dispatch' && inputs.metric_baseline
+        run: >-
+          uv run python -m tests.performance.metric_pipeline_baseline
+          --base-url http://127.0.0.1:8000
+          --output-directory .artifacts/metric-baseline
+          --events 100
+          --payload-bytes 1024
+          --producers 4
+          --timeout-seconds 120
+
+      - name: Stop optional baseline API
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.metric_baseline
+        run: |
+          if test -f .artifacts/metric-baseline/api.pid; then
+            kill "$(cat .artifacts/metric-baseline/api.pid)" || true
+          fi
+
+      - name: Upload optional metric baseline
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.metric_baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: metric-pipeline-baseline
+          path: .artifacts/metric-baseline
+          if-no-files-found: error
+          retention-days: 30
 
   docker-prometheus-integration:
     name: Docker Prometheus integration

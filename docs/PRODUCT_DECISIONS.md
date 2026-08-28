@@ -353,7 +353,27 @@ moins une livraison.
   EventType ; les contraintes PostgreSQL existantes restent les derniers
   garde-fous d'unicité.
 - Une création ne reconstruit ni n'active aucune ProcessingChain. Le rebuild et
-  l'activation restent des actions explicites du lot BDD-016C.
+  l'activation restent des actions explicites et séparées.
+
+### Metric Builder BDD-016C
+
+- Preview, création atomique, rebuild et activation restent quatre frontières
+  explicites. Seul le rebuild crée une `DRAFT`; seule l'activation modifie la
+  chaîne `ACTIVE`; aucun Event historique n'est traité par ces opérations.
+- Le rebuild refuse un snapshot dont deux codes métier distincts convergent
+  vers le même nom Prometheus. L'activation refait la même validation canonique
+  sous le verrou du `SchemaDefinition` exact avant de retirer l'ancienne chaîne.
+  Un échec conserve donc intégralement l'ancienne `ACTIVE`.
+- Deux EventTypes restent isolés par leurs identités persistées, même si leurs
+  JSON Schemas sont structurellement identiques. Le nom Prometheus n'est pas un
+  conflit global : les labels plateforme distinguent les séries.
+- L'acquisition métrique verrouille avec `SKIP LOCKED` le plan et son exécution
+  parent. Deux workers peuvent ainsi prendre des Events distincts sans exécuter
+  simultanément deux plans du même snapshot Event ni attendre sur son parent.
+- La baseline initiale utilise PostgreSQL réel, 100 Events d'environ 1 KiB,
+  cinq plans Counter, quatre producteurs et un worker métrique. Elle bloque sur
+  l'exactitude et les timeouts fonctionnels, jamais sur un percentile. Elle est
+  comparative et ne constitue ni SLA ni capacité produit absolue.
 
 ## Paramètres runtime et invariants
 
@@ -364,7 +384,8 @@ moins une livraison.
 - Le premier traitement matérialise durablement le snapshot Event/chaîne et
   une exécution unique par Event/ProcessingPlan avant la fin du routing.
 - Les plans sont exécutés séparément du routing et de la delivery, avec une
-  transaction par plan et acquisition PostgreSQL `SKIP LOCKED`.
+  transaction par plan et acquisition PostgreSQL `SKIP LOCKED` du plan et de
+  son parent Event/snapshot.
 - Les observations, la réussite du plan et leurs références sont atomiques.
 - Un retry métrique conserve le snapshot initial et ne rejoue aucune delivery.
 - L'identité d'une observation runtime est
