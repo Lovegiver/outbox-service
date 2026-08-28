@@ -14,8 +14,9 @@ La chaîne complète suivie par BDD-015 est découpée en trois lots :
 3. BDD-015C : exécution des ProcessingPlans persistés vers
    AnalyticalObservation.
 
-BDD-016 Metric Builder viendra ensuite produire ce même YAML. Il ne constituera
-pas une seconde voie de validation ou de compilation.
+BDD-016 Metric Builder produit ce même YAML. Son analyse conservatrice guide la
+preview, puis le pipeline canonique reste l'unique voie de validation et de
+compilation.
 
 ## Contrat YAML 1.0
 
@@ -257,9 +258,11 @@ concerné, sans observation ni `MetricState` et sans impact sur routing ou
 delivery. Le JSON Schema de l'Event n'est pas réécrit et l'Event reste valide
 selon son propre contrat.
 
-Le futur Builder BDD-016 devra exploiter les contraintes du JSON Schema pour
-refuser ou signaler un intent Counter lorsque le champ ciblé ne garantit pas la
-non-négativité, notamment lorsqu'aucun `minimum: 0` n'est défini.
+Le Builder BDD-016A exploite les contraintes du JSON Schema et refuse
+`sum_value` lorsque le champ ciblé ne garantit pas la non-négativité, notamment
+lorsqu'aucun `minimum: 0` n'est défini. Le détail du sous-ensemble analysé et
+des garde-fous est documenté dans
+[Metric Builder Schema Analysis](Metric%20Builder%20Schema%20Analysis.md).
 
 La projection Prometheus omet les labels `null` et vides. Plusieurs partitions
 internes qui convergent ainsi vers la même identité Prometheus finale sont

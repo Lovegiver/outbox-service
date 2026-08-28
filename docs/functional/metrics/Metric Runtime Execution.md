@@ -67,7 +67,7 @@ Every runtime observation references:
 - the MetricDefinition and MetricDefinitionVersion;
 - a deterministic `observation_key`.
 
-For compiler version `1.0`, the key is derived from the compiled observation
+For compiler versions `1.0` and `1.1`, the key is derived from the compiled observation
 position and deterministic match occurrence. The database unique constraint on
 `Event + ProcessingPlan + observation_key` prevents duplicate observations
 after retry or replay. Historical observations remain readable with nullable
@@ -110,15 +110,22 @@ Prometheus rendering repeat the same centralized validation only as a defense
 against historical, externally corrupted or regressed data. A non-finite
 coalesced Counter total is rejected explicitly.
 
-BDD-016 must inspect JSON Schema numeric constraints and reject or warn when a
-Counter intent targets a value whose non-negativity is not guaranteed, for
-example when `minimum: 0` is absent. This runtime safeguard does not modify or
-strengthen the client's Event schema.
+BDD-016A inspects JSON Schema numeric constraints and rejects a Counter intent
+when non-negativity is not guaranteed, for example when `minimum: 0` is absent.
+This runtime safeguard remains necessary and does not modify or strengthen the
+client's Event schema.
 
 ## Optional fields and labels
 
 An absent optional `value_path` skips only that compiled observation. It emits
 neither `0` nor `null` and does not fail the plan.
+
+Compiler `1.1` records path nullability. An explicitly allowed `null` value has
+the same no-measure result, while a `null` that contradicts a non-nullable plan
+is a durable permanent error. Historical `1.0` plans default conservatively to
+non-nullable and remain executable.
+The stable defensive errors are `METRIC_VALUE_NULL_NOT_ALLOWED` and
+`METRIC_LABEL_NULL_NOT_ALLOWED`.
 
 An absent optional label is stored structurally as JSON `null` in both
 `AnalyticalObservation` and `MetricState`. A literal `"__missing__"`, an empty

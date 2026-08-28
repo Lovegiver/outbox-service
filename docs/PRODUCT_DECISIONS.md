@@ -315,6 +315,26 @@ moins une livraison.
 - Une cardinalité jugée forte par le Metric Builder provoque un rejet, pas un
   simple warning.
 
+### Metric Builder BDD-016A
+
+- Le JSON Schema exact est l'unique source de vérité du type, de l'obligation
+  et de la nullabilité. Un chemin imbriqué n'est obligatoire que si tous ses
+  ancêtres le sont.
+- Une construction non maîtrisée est `UNSUPPORTED` et n'est jamais présumée
+  compatible.
+- `sum_value` exige une borne inférieure démontrable supérieure ou égale à
+  zéro. Une absence de borne est `UNSAFE` et bloque la preview.
+- Une donnée optionnelle absente ou une valeur `null` autorisée ne produit ni
+  observation, ni incrément, ni zéro artificiel. Une vraie valeur produisant
+  zéro reste une contribution valide.
+- Les labels du premier périmètre sont les booléens et enums scalaires bornés.
+  Les valeurs libres, identifiants et vecteurs statiques de forte cardinalité
+  sont refusés. La limite par défaut de l'enum est configurable et vaut 20.
+- Le nom Prometheus final est calculé par OB1 et exposé en lecture seule. Une
+  collision déterminable après normalisation bloque la preview.
+- Le plan compilé `1.1` transporte la nullabilité. Le runtime continue à lire
+  les plans historiques `1.0`, sans relire le schema ou le YAML.
+
 ## Paramètres runtime et invariants
 
 ### Exécution des métriques compilées
@@ -358,9 +378,9 @@ moins une livraison.
 Les paramètres de batch, nombre maximal de tentatives et backoff des métriques
 appartiennent à `metrics.execution` dans les profils runtime.
 
-BDD-016 devra analyser les contraintes du JSON Schema et refuser ou avertir
-lorsqu'un intent Counter portant sur une valeur ne garantit pas sa
-non-négativité, par exemple en l'absence de `minimum: 0`.
+BDD-016A analyse les contraintes du JSON Schema et refuse un intent Counter
+lorsqu'une valeur ne garantit pas sa non-négativité, notamment en l'absence de
+`minimum: 0`.
 
 Les fichiers existants `config/app.dev.yaml`, `config/app.test.yaml` et
 `config/app.prod.yaml` sont le bon emplacement pour les paramètres variant par
