@@ -152,5 +152,11 @@ class MetricBuilderCreateResponse(_StrictBuilderModel):
 
     metric_definition_id: int
     metric_definition_version_id: int
+    metric_definition_version_schema_id: int
+    schema_definition_id: int
+    metric_code: str
+    prometheus_metric_name: str
     yaml_content: str
+    compiled_plan_json: dict
+    created: bool
     warnings: list[str] = Field(default_factory=list)

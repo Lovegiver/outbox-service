@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.container.service_factory import ServiceFactory
@@ -20,9 +20,13 @@ from app.schemas.metric_builder_schema import (
     MetricBuilderSchemaFieldsResponse,
 )
 from app.services.metric_builder_errors import (
+    MetricBuilderAlreadyExistsError,
     MetricBuilderContractError,
+    MetricBuilderCreationConflictError,
+    MetricBuilderNameCollisionError,
     MetricBuilderNotFoundError,
     MetricBuilderScopeError,
+    MetricBuilderUnsafeError,
     MetricBuilderUnsupportedError,
 )
 
@@ -130,10 +134,12 @@ def preview_metric_builder_definition(
 @router.post(
     "/create",
     response_model=MetricBuilderCreateResponse,
+    status_code=status.HTTP_201_CREATED,
 )
 def create_metric_builder_definition(
     event_type_id: int,
     request: MetricBuilderCreateRequest,
+    response: Response,
     _: UserAccount = Depends(
         require_event_type_permission(ProjectPermission.METRICS_WRITE)
     ),
@@ -161,14 +167,33 @@ def create_metric_builder_definition(
         raise HTTPException(status_code=404, detail=exc.public_message()) from exc
     except MetricBuilderScopeError as exc:
         raise HTTPException(status_code=403, detail=exc.public_message()) from exc
-    except MetricBuilderContractError as exc:
+    except (
+        MetricBuilderContractError,
+        MetricBuilderUnsafeError,
+        MetricBuilderUnsupportedError,
+    ) as exc:
         raise HTTPException(status_code=422, detail=exc.public_message()) from exc
+    except (
+        MetricBuilderAlreadyExistsError,
+        MetricBuilderCreationConflictError,
+        MetricBuilderNameCollisionError,
+    ) as exc:
+        raise HTTPException(status_code=409, detail=exc.public_message()) from exc
     except MetricBuilderInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    response.status_code = (
+        status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
+    )
     return MetricBuilderCreateResponse(
         metric_definition_id=result.metric_definition.id,
         metric_definition_version_id=result.metric_definition_version.id,
+        metric_definition_version_schema_id=result.compatibility.id,
+        schema_definition_id=result.schema_definition.id,
+        metric_code=result.metric_definition.code,
+        prometheus_metric_name=result.prometheus_metric_name,
         yaml_content=result.yaml_content,
+        compiled_plan_json=result.compiled_plan_json,
+        created=result.created,
         warnings=result.warnings,
     )

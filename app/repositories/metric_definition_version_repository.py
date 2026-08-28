@@ -31,10 +31,7 @@ class MetricDefinitionVersionRepository:
         """Return the complete YAML version history in ascending order."""
         statement = (
             select(MetricDefinitionVersion)
-            .where(
-                MetricDefinitionVersion.metric_definition_id
-                == metric_definition_id
-            )
+            .where(MetricDefinitionVersion.metric_definition_id == metric_definition_id)
             .order_by(
                 MetricDefinitionVersion.yaml_version_number.asc(),
                 MetricDefinitionVersion.id.asc(),
@@ -45,14 +42,23 @@ class MetricDefinitionVersionRepository:
 
     def find_next_version_number(self, metric_definition_id: int) -> int:
         """Return the next internal version number for a locked definition."""
-        statement = select(
-            func.max(MetricDefinitionVersion.yaml_version_number)
-        ).where(
-            MetricDefinitionVersion.metric_definition_id
-            == metric_definition_id
+        statement = select(func.max(MetricDefinitionVersion.yaml_version_number)).where(
+            MetricDefinitionVersion.metric_definition_id == metric_definition_id
         )
         current_max = self.db.execute(statement).scalar_one()
         return 1 if current_max is None else int(current_max) + 1
+
+    def find_by_metric_definition_and_number(
+        self,
+        metric_definition_id: int,
+        yaml_version_number: int,
+    ) -> MetricDefinitionVersion | None:
+        """Return one exact immutable version from a metric definition."""
+        statement = select(MetricDefinitionVersion).where(
+            MetricDefinitionVersion.metric_definition_id == metric_definition_id,
+            MetricDefinitionVersion.yaml_version_number == yaml_version_number,
+        )
+        return self.db.execute(statement).scalar_one_or_none()
 
     def find_latest_compatible_versions(
         self,

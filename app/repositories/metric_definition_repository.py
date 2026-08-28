@@ -35,6 +35,18 @@ class MetricDefinitionRepository:
 
         return self.db.execute(statement).scalar_one_or_none()
 
+    def find_by_event_type_and_code(
+        self,
+        event_type_id: int,
+        code: str,
+    ) -> MetricDefinition | None:
+        """Return the definition identified by its natural Builder scope."""
+        statement = select(MetricDefinition).where(
+            MetricDefinition.event_type_id == event_type_id,
+            MetricDefinition.code == code,
+        )
+        return self.db.execute(statement).scalar_one_or_none()
+
     def list_by_event_type(self, event_type_id: int) -> list[MetricDefinition]:
         """Return definitions belonging to an EventType in stable order."""
         statement = (
