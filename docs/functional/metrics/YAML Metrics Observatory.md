@@ -143,10 +143,21 @@ active compatible ayant le numéro interne le plus élevé. L'ensemble est trié
 par identité de définition, revalidé et recompilé avant toute persistance. Une
 chaîne ne contient jamais deux versions d'une même définition.
 
+Avant de persister la candidate, OB1 calcule avec le normaliseur canonique le
+nom Prometheus de chaque observation compilée. Deux codes source distincts qui
+convergent dans ce scope, par exemple `sales-total` et `sales_total`, provoquent
+`BUILDER_PROMETHEUS_NAME_COLLISION` et un rollback complet. Le même contrôle est
+réexécuté pendant l'activation pour couvrir les DRAFT historiques ou créées par
+un autre parcours administratif.
+
 La chaîne et tous ses plans constituent un snapshot immutable. Tous les
 `compiled_plan_json` sont préparés avant la section critique. Une nouvelle
 version YAML ou une nouvelle compatibilité ne modifie ni ne reconstruit une
 chaîne existante.
+
+Cette validation reste locale à l'EventType exact. Deux EventTypes, y compris
+avec des JSON Schemas structurellement identiques et les mêmes codes métriques,
+restent des scopes légitimes distincts grâce aux labels plateforme de la série.
 
 Construction et activation sont deux opérations métier distinctes. Un rebuild
 modifié persiste une candidate complète `DRAFT` et ses plans dans une même
