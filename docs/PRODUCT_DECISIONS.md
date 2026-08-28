@@ -335,6 +335,26 @@ moins une livraison.
 - Le plan compilé `1.1` transporte la nullabilité. Le runtime continue à lire
   les plans historiques `1.0`, sans relire le schema ou le YAML.
 
+### Metric Builder BDD-016B
+
+- `create` revalide la requête contre le `SchemaDefinition` exact et transmet
+  le texte YAML généré sans divergence à `MetricYamlService` avant toute
+  écriture.
+- `MetricDefinition`, sa première `MetricDefinitionVersion` et la compatibilité
+  exacte sont persistées dans une transaction unique. Le service
+  d'orchestration possède le commit et le rollback ; les repositories utilisent
+  `flush()` sans commit intermédiaire.
+- La clé naturelle initiale est `EventType + code métrique`. Un rejeu
+  fonctionnellement identique retourne les mêmes identifiants sans nouvelle
+  version ; un contenu différent retourne un conflit et ne modifie pas
+  l'existant.
+- Les créations sont sérialisées par verrou de l'EventType, puis du schema
+  exact. Le contrôle du nom Prometheus est refait sous ce verrou dans le scope
+  EventType ; les contraintes PostgreSQL existantes restent les derniers
+  garde-fous d'unicité.
+- Une création ne reconstruit ni n'active aucune ProcessingChain. Le rebuild et
+  l'activation restent des actions explicites du lot BDD-016C.
+
 ## Paramètres runtime et invariants
 
 ### Exécution des métriques compilées

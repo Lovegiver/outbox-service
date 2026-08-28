@@ -387,8 +387,15 @@ La feature executable `metric_builder_schema_contract.feature` couvre
 BDD-016A : inspection conservatrice du schema, obligation imbriquee,
 nullabilite, six intents Counter, bornes de `sum_value`, politique statique des
 labels, chemins bornes, collisions Prometheus, entrees dangereuses inertes et
-absence de toute ecriture pendant la preview. La creation atomique,
-compatibilite et activation restent explicitement dans les lots suivants.
+absence de toute ecriture pendant la preview.
+
+La feature executable `metric_builder_atomic_creation.feature` couvre
+BDD-016B : triplet definition/version/compatibilite exact, rejeu idempotent,
+conflits de contenu et de nom Prometheus, schema explicite, absence de rebuild,
+absence d'activation et preservation d'une chaine ACTIVE. Les tests
+PostgreSQL associes prouvent le rollback apres chaque flush et la serialisation
+de creations concurrentes. Rebuild et activation restent explicitement dans
+BDD-016C.
 
 ### Prometheus Metric State
 
