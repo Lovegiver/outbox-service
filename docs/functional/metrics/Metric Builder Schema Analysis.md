@@ -1,11 +1,13 @@
 # Metric Builder Schema Analysis
 
-## BDD-016A boundary
+## BDD-016A and BDD-016B boundaries
 
-BDD-016A is a read-only configuration analysis boundary. It enriches
-`schema-fields` and hardens `preview`; it does not make Builder creation
-atomic, create compatibilities, rebuild or activate ProcessingChains. Those
-orchestration steps remain BDD-016B/C work.
+BDD-016A is the read-only configuration analysis boundary. It enriches
+`schema-fields` and hardens `preview`. BDD-016B adds the atomic `create`
+boundary: it persists one `MetricDefinition`, its first immutable
+`MetricDefinitionVersion`, and the compatibility with the exact selected
+`SchemaDefinition` in one transaction. BDD-016C remains responsible for the
+explicit rebuild and activation lifecycle.
 
 The exact `SchemaDefinition.json_schema` is the only source of truth for a
 field's type, required character and nullability. The Builder never asks the
@@ -91,13 +93,52 @@ count and enum size are bounded.
 The final Prometheus metric name is centrally calculated and returned as
 read-only preview data. Existing codes are compared by their final normalized
 name, so `sales-total` and `sales_total`, or `sales` and `ob1_sales`, cannot
-silently converge. Transactional enforcement across concurrent creation is
-part of the atomic BDD-016B create boundary; the renderer remains defensive.
+silently converge. BDD-016B repeats that check under the stable EventType
+scope lock. The renderer remains defensive, and BDD-016C must retain the
+definitive check when a future snapshot is rebuilt or activated.
 
 SQLAlchemy repositories use bound parameters and no Builder input controls a
 table, column or SQL clause. Free text such as apostrophes or markup is stored
 as inert data. Output encoding belongs to the future frontend boundary. The
 known frontend JWT and general YAML-import hardening are outside BDD-016A.
+
+## Atomic Builder creation
+
+`POST /api/admin/event-types/{event_type_id}/metric-builder/create` does not
+trust a prior preview. In the transaction it locks the EventType, resolves and
+locks the exact schema, reruns the bounded analysis and intent safeguards,
+generates the YAML, and sends that exact text through `MetricYamlService` for
+safe parsing, validation and compilation. Only then does it flush, in order:
+
+1. the `MetricDefinition`;
+2. its version number `1`;
+3. the exact version/schema compatibility.
+
+The orchestration service owns the single commit and every rollback. The
+repositories only add, query, lock and flush, so identifiers are available
+without an intermediate commit. Failure at any point leaves none of the three
+rows behind and the session remains reusable.
+
+The natural creation key is `EventType + metric code`. A functionally
+identical replay returns the same three identifiers with HTTP `200` and
+creates no version. Functional equality covers the definition name and
+description, initial version label, exact schema compatibility, canonical
+YAML content and deterministic compiled plan. The initial creation returns
+HTTP `201`. Reusing the same key for different content returns
+`BUILDER_METRIC_ALREADY_EXISTS` with HTTP `409`; it never creates an implicit
+version 2.
+
+Concurrent creation is serialized by locking the stable EventType row before
+the exact SchemaDefinition row. This order is constant. It protects both the
+natural key and Prometheus-name collision scan in the EventType scope without
+a global lock. Identical requests converge on one triplet; incompatible
+requests return a stable conflict after the winning transaction commits.
+Existing PostgreSQL unique constraints remain the final protection for the
+definition key, version number and exact compatibility.
+
+Creation does not create a `ProcessingChain` or `ProcessingPlan`, does not
+change an ACTIVE chain, and never invokes Event runtime processing. Rebuild
+and activation remain explicit BDD-016C operations.
 
 ## Performance follow-up
 

@@ -399,11 +399,14 @@ class ServiceFactory:
             **cls.config_service.get_metric_builder_limits()
         )
         return MetricBuilderService(
+            db=db,
+            event_type_repository=EventTypeRepository(db),
             schema_repository=SchemaRepository(db),
             metric_definition_repository=MetricDefinitionRepository(db),
-            metric_definition_admin_service=(
-                cls.create_metric_definition_admin_service(db)
+            metric_definition_version_repository=(
+                MetricDefinitionVersionRepository(db)
             ),
+            compatibility_repository=MetricDefinitionVersionSchemaRepository(db),
             metric_yaml_service=MetricYamlService(),
             schema_analyzer=MetricBuilderSchemaAnalyzer(limits),
             limits=limits,

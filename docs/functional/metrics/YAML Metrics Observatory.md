@@ -264,6 +264,14 @@ lorsqu'aucun `minimum: 0` n'est défini. Le détail du sous-ensemble analysé et
 des garde-fous est documenté dans
 [Metric Builder Schema Analysis](Metric%20Builder%20Schema%20Analysis.md).
 
+Le Builder BDD-016B persiste la définition, sa première version YAML immutable
+et sa compatibilité avec le schema exact dans une seule transaction. Le YAML
+stocké est exactement le texte validé et compilé par `MetricYamlService`. Un
+rejeu identique retourne les mêmes ressources ; le même code avec un contenu
+différent ou un nom Prometheus final en collision retourne un conflit sans
+état partiel. Cette création n'effectue aucun rebuild et aucune activation de
+ProcessingChain.
+
 La projection Prometheus omet les labels `null` et vides. Plusieurs partitions
 internes qui convergent ainsi vers la même identité Prometheus finale sont
 additionnées au rendu, sans réécriture en base. Cette règle est limitée aux

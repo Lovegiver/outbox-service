@@ -55,11 +55,15 @@ class SchemaRepository:
     def find_active_by_event_type(
         self,
         event_type_id: int,
+        *,
+        for_update: bool = False,
     ) -> SchemaDefinition | None:
         stmt = select(SchemaDefinition).where(
             SchemaDefinition.event_type_id == event_type_id,
             SchemaDefinition.is_active.is_(True),
         )
+        if for_update:
+            stmt = stmt.with_for_update()
         return self.db.execute(stmt).scalar_one_or_none()
 
     def list_by_event_type(self, event_type_id: int) -> list[SchemaDefinition]:
@@ -71,9 +75,9 @@ class SchemaRepository:
         return list(self.db.execute(stmt).scalars().all())
 
     def find_active_by_project_and_event_type(
-            self,
-            project_name: str,
-            event_type_code: str,
+        self,
+        project_name: str,
+        event_type_code: str,
     ) -> SchemaDefinition | None:
         statement = (
             select(SchemaDefinition)

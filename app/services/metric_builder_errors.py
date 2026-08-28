@@ -50,3 +50,15 @@ class MetricBuilderNameCollisionError(MetricBuilderError):
     """Raised when distinct metric codes normalize to the same series name."""
 
     code = "BUILDER_PROMETHEUS_NAME_COLLISION"
+
+
+class MetricBuilderAlreadyExistsError(MetricBuilderError):
+    """Raised when one natural metric key has different functional content."""
+
+    code = "BUILDER_METRIC_ALREADY_EXISTS"
+
+
+class MetricBuilderCreationConflictError(MetricBuilderError):
+    """Raised when persistence detects an incompatible concurrent creation."""
+
+    code = "BUILDER_CREATION_CONFLICT"
