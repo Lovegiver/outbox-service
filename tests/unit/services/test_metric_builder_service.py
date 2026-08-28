@@ -36,6 +36,8 @@ SCHEMA = {
 
 
 def _service(schema: dict = SCHEMA) -> tuple[MetricBuilderService, Mock, Mock]:
+    db = Mock()
+    event_type_repository = Mock()
     schema_repository = Mock()
     schema_repository.find_active_by_event_type.return_value = SchemaDefinition(
         id=7,
@@ -48,9 +50,12 @@ def _service(schema: dict = SCHEMA) -> tuple[MetricBuilderService, Mock, Mock]:
     definition_repository.list_by_event_type.return_value = []
     limits = MetricBuilderAnalysisLimits(max_enum_values=3, max_labels=2)
     service = MetricBuilderService(
+        db=db,
+        event_type_repository=event_type_repository,
         schema_repository=schema_repository,
         metric_definition_repository=definition_repository,
-        metric_definition_admin_service=Mock(),
+        metric_definition_version_repository=Mock(),
+        compatibility_repository=Mock(),
         metric_yaml_service=MetricYamlService(),
         schema_analyzer=MetricBuilderSchemaAnalyzer(limits),
         limits=limits,
@@ -188,10 +193,12 @@ def test_missing_and_out_of_scope_schemas_are_narrow_errors() -> None:
 
 
 def test_preview_is_read_only() -> None:
-    service, _, _ = _service()
+    service, _, definition_repository = _service()
 
     preview = service.preview_metric(12, "events", "count_event", None, {})
 
     assert preview.valid is True
-    service.metric_definition_admin_service.create_metric_definition.assert_not_called()
-    service.metric_definition_admin_service.create_metric_definition_version.assert_not_called()
+    definition_repository.add.assert_not_called()
+    service.metric_definition_version_repository.add.assert_not_called()
+    service.compatibility_repository.add.assert_not_called()
+    service.db.commit.assert_not_called()
