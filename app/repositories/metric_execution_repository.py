@@ -116,6 +116,11 @@ class MetricExecutionRepository:
     ) -> MetricPlanExecution | None:
         statement = (
             select(MetricPlanExecution)
+            .join(
+                MetricProcessingExecution,
+                MetricProcessingExecution.id
+                == MetricPlanExecution.metric_processing_execution_id,
+            )
             .where(
                 MetricPlanExecution.attempt_count < max_attempts,
                 or_(
@@ -136,7 +141,10 @@ class MetricExecutionRepository:
                 MetricPlanExecution.id.asc(),
             )
             .limit(1)
-            .with_for_update(skip_locked=True)
+            .with_for_update(
+                of=(MetricPlanExecution, MetricProcessingExecution),
+                skip_locked=True,
+            )
         )
         return self.db.execute(statement).scalar_one_or_none()
 
