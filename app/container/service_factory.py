@@ -43,6 +43,7 @@ from app.services.metric_builder_schema_analyzer import (
     MetricBuilderAnalysisLimits,
     MetricBuilderSchemaAnalyzer,
 )
+from app.services.metric_cardinality_service import MetricCardinalityService
 from app.services.metric_builder_service import (
     MetricBuilderService,
 )
@@ -243,6 +244,9 @@ class ServiceFactory:
         Create the service responsible for atomically activating
         analytical processing chains.
         """
+        limits = MetricBuilderAnalysisLimits(
+            **cls.config_service.get_metric_builder_limits()
+        )
         return ProcessingChainActivationService(
             db=db,
             processing_chain_repository=(cls.create_processing_chain_repository(db)),
@@ -253,6 +257,10 @@ class ServiceFactory:
             schema_repository=SchemaRepository(db),
             processing_chain_builder_service=(
                 cls.create_processing_chain_builder_service(db)
+            ),
+            event_type_repository=EventTypeRepository(db),
+            cardinality_service=MetricCardinalityService(
+                MetricBuilderSchemaAnalyzer(limits), limits
             ),
         )
 
@@ -410,6 +418,8 @@ class ServiceFactory:
             metric_yaml_service=MetricYamlService(),
             schema_analyzer=MetricBuilderSchemaAnalyzer(limits),
             limits=limits,
+            processing_chain_repository=ProcessingChainRepository(db),
+            processing_plan_repository=ProcessingPlanRepository(db),
         )
 
     @classmethod

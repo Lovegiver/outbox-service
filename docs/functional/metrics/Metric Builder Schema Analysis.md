@@ -18,7 +18,8 @@ user to redefine those properties.
 
 Each field descriptor exposes `path`, `json_type`, `required`, `nullable`,
 `analysis_status`, `analysis_reason`, `label_allowed`,
-`label_rejection_reason`, `value_intents`, `cardinality_risk` and `warnings`.
+`label_rejection_reason`, `value_intents`, `cardinality_risk`,
+`label_cardinality`, `label_cardinality_source` and `warnings`.
 The closed analysis statuses are:
 
 - `SUPPORTED`: the schema construction and proposed Counter use are proven;
@@ -79,8 +80,45 @@ Free strings and numbers, objects, arrays, oversized or non-scalar enums,
 and date/time fields are refused. Nullable labels use the same cardinality
 decision; nullability affects extraction rather than widening allowed values.
 
-This is a deterministic minimum safeguard. Per-metric, EventType or Project
-budgets and observed runtime cardinality are future work.
+## Static EventType cardinality budget
+
+The Builder applies a static configuration safeguard to the full projected
+ACTIVE snapshot of one EventType. It never counts observed Event values,
+`AnalyticalObservation`, `MetricState`, or Prometheus series, and it is never
+queried in the Event runtime.
+
+The configured defaults are a budget of **200** user-facing series per
+EventType and a warning threshold of **160**. They are exposed under
+`metrics.builder.event_type_series_budget` and
+`metrics.builder.event_type_series_warning`; there is intentionally no
+per-EventType persisted override in this first implementation.
+
+A metric without dynamic labels costs one series. A metric with labels costs
+the product of their finite domains. A required boolean costs `2`; a required
+enum costs its number of scalar values `N`. An optional or nullable label adds
+one omitted-label identity because null and absence are both omitted at
+Prometheus projection, not represented by a reserved sentinel. Therefore an
+optional boolean costs `3`, and an optional enum costs `N + 1`. Multiple
+labels multiply these bounds. The literal business value `"__missing__"`
+remains ordinary data.
+
+Only finite domains proven by the bounded analyzer are admitted. Free strings
+or numbers, arrays, objects, identifiers and unsupported schema constructions
+are `UNBOUNDED` and block the configuration. Multiplication and addition use a
+configured safety cap, so overflow can never become an underestimated bound.
+
+Preview returns an explainable `safeguards` object containing the decision,
+limit, current/candidate/replaced/projected contributions, remaining budget,
+structured warnings/errors and a per-metric breakdown. Creation rechecks the
+same configuration under the EventType lock. Rebuild and activation lock that
+same EventType and recalculate the projected snapshot, subtracting the ACTIVE
+snapshot that the candidate replaces. A rejected rebuild or activation leaves
+the former ACTIVE chain untouched.
+
+`BUILDER_CARDINALITY_BUDGET_EXCEEDED` and
+`BUILDER_CARDINALITY_UNBOUNDED` are stable public Builder errors. The warning
+threshold yields a structured warning but remains activatable; exceeding the
+budget is blocking.
 
 ## Input and name safety
 
@@ -99,10 +137,28 @@ scope lock. BDD-016C repeats it over the complete snapshot both during rebuild
 and, under the exact schema lock, during activation. Historical or alternate
 administration paths cannot bypass it. The renderer remains defensive.
 
+Business label names use the renderer's strict Prometheus validator: they are
+not silently normalized. Invalid names and the `ob1_` reserved namespace are
+rejected, so a user label cannot collide with OB1 technical labels.
+
 SQLAlchemy repositories use bound parameters and no Builder input controls a
 table, column or SQL clause. Free text such as apostrophes or markup is stored
 as inert data. Output encoding belongs to the future frontend boundary. The
 known frontend JWT and general YAML-import hardening are outside BDD-016A.
+
+## Performance baseline
+
+The reproducible metric pipeline baseline remains outside normal request CI
+thresholds and writes JSON/Markdown reports under `/tmp`. Run it with:
+
+```bash
+uv run python -m tests.performance.metric_pipeline_baseline
+```
+
+It checks functional integrity over PostgreSQL while reporting ingress and
+runtime percentiles. It is comparative, not an SLA. Static cardinality
+assessment occurs only during Builder/lifecycle administration and adds no
+policy lookup or compilation to nominal Event processing.
 
 ## Atomic Builder creation
 

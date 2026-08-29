@@ -51,6 +51,10 @@ Feature: Analyze JSON Schema fields for Counter metrics
     When count_by_label is previewed with the enum label
     Then the Builder preview is valid
 
+  Scenario: A bounded label explains its static series contribution
+    When a safe Builder metric is previewed with a bounded label
+    Then the Builder preview exposes explainable cardinality safeguards
+
   Scenario: A free string cannot be a label
     When count_by_label is previewed with the free string label
     Then the Builder preview is invalid with code "BUILDER_COUNTER_UNSAFE"

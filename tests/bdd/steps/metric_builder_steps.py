@@ -268,6 +268,30 @@ def enum_label(ctx: TestContext) -> None:
     )
 
 
+@when("a safe Builder metric is previewed with a bounded label")
+def preview_bounded_label_safeguards(ctx: TestContext) -> None:
+    """Exercise the public explainable static-cardinality contract."""
+    _preview(
+        ctx,
+        metric_code="bounded_status_total",
+        intent="count_by_label",
+        labels={"status": "$.status"},
+    )
+
+
+@then("the Builder preview exposes explainable cardinality safeguards")
+def preview_exposes_cardinality_safeguards(ctx: TestContext) -> None:
+    """Assert the API returns structured, UI-consumable safeguards."""
+    assert ctx.last_response is not None
+    assert ctx.last_response.status_code == 200, ctx.last_response.text
+    safeguards = ctx.last_response.json()["safeguards"]
+    assert safeguards["decision"] == "INFO"
+    assert safeguards["budget_limit"] == 200
+    assert safeguards["candidate_contribution"] == 2
+    assert safeguards["projected_estimated_series"] == 2
+    assert safeguards["metric_breakdown"][0]["labels"][0]["cardinality"] == 2
+
+
 @when("count_by_label is previewed with the free string label")
 def free_string_label(ctx: TestContext) -> None:
     _preview(

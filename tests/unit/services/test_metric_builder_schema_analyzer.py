@@ -38,6 +38,9 @@ def test_application_exposes_configurable_builder_limits() -> None:
         "max_schema_depth": 32,
         "max_schema_fields": 1000,
         "max_label_name_length": 128,
+        "event_type_series_budget": 200,
+        "event_type_series_warning": 160,
+        "max_metric_series_estimate": 1000000,
     }
 
 
@@ -217,6 +220,28 @@ def test_literal_missing_string_is_not_reserved(
     )
 
     assert field.label_allowed is True
+
+
+@pytest.mark.parametrize(
+    ("required", "nullable", "expected"),
+    [(True, False, 2), (False, False, 3), (True, True, 3)],
+)
+def test_boolean_label_cardinality_includes_one_omitted_identity(
+    analyzer: MetricBuilderSchemaAnalyzer,
+    required: bool,
+    nullable: bool,
+    expected: int,
+) -> None:
+    """Absent and null labels coalesce into one omitted label identity."""
+    schema = _object(
+        {"active": {"type": ["boolean", "null"] if nullable else "boolean"}},
+        ["active"] if required else [],
+    )
+
+    [field] = analyzer.analyze(schema)
+
+    assert field.label_cardinality == expected
+    assert field.label_cardinality_source is not None
 
 
 def test_analysis_does_not_mutate_input(analyzer: MetricBuilderSchemaAnalyzer) -> None:

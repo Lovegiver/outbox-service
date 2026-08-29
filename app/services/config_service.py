@@ -65,15 +65,31 @@ class ConfigService:
     def get_metric_builder_limits(self) -> dict[str, int]:
         """Return bounded JSON Schema and Builder input limits."""
         builder = self.config.get("metrics", {}).get("builder", {})
-        return {
-            "max_enum_values": int(builder.get("max_enum_values", 20)),
-            "max_labels": int(builder.get("max_labels", 5)),
-            "max_path_length": int(builder.get("max_path_length", 512)),
-            "max_path_segments": int(builder.get("max_path_segments", 32)),
-            "max_schema_depth": int(builder.get("max_schema_depth", 32)),
-            "max_schema_fields": int(builder.get("max_schema_fields", 1000)),
-            "max_label_name_length": int(builder.get("max_label_name_length", 128)),
+        defaults = {
+            "max_enum_values": 20,
+            "max_labels": 5,
+            "max_path_length": 512,
+            "max_path_segments": 32,
+            "max_schema_depth": 32,
+            "max_schema_fields": 1000,
+            "max_label_name_length": 128,
+            "event_type_series_budget": 200,
+            "event_type_series_warning": 160,
+            "max_metric_series_estimate": 1_000_000,
         }
+        limits: dict[str, int] = {}
+        for name, default in defaults.items():
+            value = builder.get(name, default)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError("Metric Builder limits must be positive integers")
+            limits[name] = value
+        if any(value <= 0 for value in limits.values()):
+            raise ValueError("Metric Builder limits must be positive integers")
+        if limits["event_type_series_warning"] > limits["event_type_series_budget"]:
+            raise ValueError("Metric Builder warning threshold exceeds its budget")
+        if limits["max_metric_series_estimate"] < limits["event_type_series_budget"]:
+            raise ValueError("Metric Builder estimate cap is below its budget")
+        return limits
 
     def get_delivery_timeout_seconds(self) -> int:
         return int(self.config.get("delivery", {}).get("timeout_seconds", 5))
