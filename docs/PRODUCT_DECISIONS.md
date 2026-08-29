@@ -375,6 +375,26 @@ moins une livraison.
   l'exactitude et les timeouts fonctionnels, jamais sur un percentile. Elle est
   comparative et ne constitue ni SLA ni capacité produit absolue.
 
+### Metric cardinality safeguards (#79 / #80)
+
+- Le budget de cardinalité est une borne statique de configuration au scope
+  `EventType`, pas un comptage d'Events, d'observations, de MetricState ou de
+  séries Prometheus observées.
+- La valeur par défaut est 200 séries utilisateur, avec avertissement à 160.
+  La configuration applicative est la source de vérité de ce premier périmètre;
+  aucune surcharge persistée par EventType n'est introduite sans besoin de
+  produit distinct.
+- Une métrique sans label coûte une série. Les domaines finis des labels se
+  multiplient; booléen requis = 2, booléen optionnel/nullable = 3, enum requis
+  de N valeurs = N, enum optionnel/nullable = N + 1.
+- Les labels absents ou null produisent une identité où le label est omis,
+  jamais une sentinelle. Une vraie valeur `"__missing__"` reste une valeur
+  métier possible.
+- Preview, création, rebuild et activation exposent ou réévaluent une décision
+  structurée. L'activation verrouille l'EventType et conserve l'ACTIVE
+  précédente en cas de dépassement ou d'estimation impossible.
+- Le runtime Event n'interroge jamais ce budget et ne recompile rien.
+
 ## Paramètres runtime et invariants
 
 ### Exécution des métriques compilées

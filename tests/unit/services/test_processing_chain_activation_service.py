@@ -8,11 +8,13 @@ from app.models.schema_definition import SchemaDefinition
 from app.services.processing_chain_activation_service import (
     ProcessingChainActivationService,
 )
+from app.services.metric_cardinality_service import CardinalityDecision
 from app.services.processing_chain_builder_service import (
     PreparedProcessingChain,
     PreparedProcessingPlan,
 )
 from app.services.processing_chain_errors import (
+    ProcessingChainConflictError,
     ProcessingChainIncompleteError,
     ProcessingChainNotFoundError,
     ProcessingChainPrometheusCollisionError,
@@ -82,6 +84,9 @@ class Chains:
 
     def list_by_scope(self, **_kwargs):
         return self.drafts
+
+    def list_active_by_event_type(self, _event_type_id):
+        return [] if self.active is None else [self.active]
 
 
 class Plans:
@@ -183,6 +188,7 @@ def _service(
     fail_persist=False,
     matching_ids=None,
     prepare_error=None,
+    cardinality_service=None,
 ):
     session = Session()
     schemas = Schemas(_schema())
@@ -206,8 +212,45 @@ def _service(
         metric_definition_version_repository=Versions(),  # type: ignore[arg-type]
         schema_repository=schemas,  # type: ignore[arg-type]
         processing_chain_builder_service=builder,  # type: ignore[arg-type]
+        cardinality_service=cardinality_service,  # type: ignore[arg-type]
     )
     return service, session, schemas, builder
+
+
+class RefusedCardinality:
+    """Deterministically refuse a lifecycle snapshot without runtime data."""
+
+    def assess(self, **_kwargs):
+        return type(
+            "Assessment",
+            (),
+            {
+                "decision": CardinalityDecision.ERROR,
+                "errors": [
+                    type(
+                        "Diagnostic",
+                        (),
+                        {
+                            "code": "BUILDER_CARDINALITY_BUDGET_EXCEEDED",
+                            "message": "Projected metric series exceed the EventType budget",
+                        },
+                    )()
+                ],
+            },
+        )()
+
+
+def test_rebuild_refuses_budget_before_persisting_a_draft() -> None:
+    """A static lifecycle refusal keeps the active/snapshot state unchanged."""
+    service, session, _, builder = _service(
+        cardinality_service=RefusedCardinality(),
+    )
+
+    with pytest.raises(ProcessingChainConflictError, match="CARDINALITY_BUDGET"):
+        service.rebuild_chain(7, 30)
+
+    assert builder.persist_calls == 0
+    assert session.rollbacks == 1
 
 
 def test_first_rebuild_persists_inactive_draft_snapshot() -> None:

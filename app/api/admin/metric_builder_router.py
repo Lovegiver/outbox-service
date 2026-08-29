@@ -81,6 +81,8 @@ def list_metric_builder_schema_fields(
                 label_rejection_reason=field.label_rejection_reason,
                 value_intents=field.value_intents,
                 cardinality_risk=field.cardinality_risk,
+                label_cardinality=field.label_cardinality,
+                label_cardinality_source=field.label_cardinality_source,
                 warnings=field.warnings,
             )
             for field in fields
@@ -128,6 +130,7 @@ def preview_metric_builder_definition(
         yaml_content=preview.yaml_content,
         compiled_plan_json=preview.compiled_plan_json,
         prometheus_metric_name=preview.prometheus_metric_name,
+        safeguards=(preview.safeguards.as_dict() if preview.safeguards else None),
     )
 
 
@@ -196,4 +199,5 @@ def create_metric_builder_definition(
         compiled_plan_json=result.compiled_plan_json,
         created=result.created,
         warnings=result.warnings,
+        safeguards=(result.safeguards.as_dict() if result.safeguards else None),
     )

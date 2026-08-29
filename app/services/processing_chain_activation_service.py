@@ -8,12 +8,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.processing_chain import ProcessingChain
+from app.repositories.event_type_repository import EventTypeRepository
 from app.repositories.metric_definition_version_repository import (
     MetricDefinitionVersionRepository,
 )
 from app.repositories.processing_chain_repository import ProcessingChainRepository
 from app.repositories.processing_plan_repository import ProcessingPlanRepository
 from app.repositories.schema_repository import SchemaRepository
+from app.services.metric_cardinality_service import (
+    CardinalityDecision,
+    CardinalityPlan,
+    MetricCardinalityService,
+)
 from app.services.metric_definition_admin_service import (
     MetricConfigurationNotFoundError,
     MetricConfigurationScopeError,
@@ -40,15 +46,17 @@ class ProcessingChainActivationService:
         metric_definition_version_repository: MetricDefinitionVersionRepository,
         schema_repository: SchemaRepository,
         processing_chain_builder_service: ProcessingChainBuilderService,
+        event_type_repository: EventTypeRepository | None = None,
+        cardinality_service: MetricCardinalityService | None = None,
     ) -> None:
         self.db = db
         self.processing_chain_repository = processing_chain_repository
         self.processing_plan_repository = processing_plan_repository
-        self.metric_definition_version_repository = (
-            metric_definition_version_repository
-        )
+        self.metric_definition_version_repository = metric_definition_version_repository
         self.schema_repository = schema_repository
         self.processing_chain_builder_service = processing_chain_builder_service
+        self.event_type_repository = event_type_repository
+        self.cardinality_service = cardinality_service
 
     def rebuild_chain(
         self,
@@ -57,9 +65,8 @@ class ProcessingChainActivationService:
     ) -> ProcessingChain:
         """Build or reuse a complete candidate without changing runtime state."""
         try:
-            schema_definition = self.schema_repository.find_by_id(
-                schema_definition_id
-            )
+            self._lock_event_type(event_type_id)
+            schema_definition = self.schema_repository.find_by_id(schema_definition_id)
             self._validate_schema_scope(
                 schema_definition=schema_definition,
                 event_type_id=event_type_id,
@@ -74,17 +81,19 @@ class ProcessingChainActivationService:
                 event_type_id=event_type_id,
                 schema_definition_id=schema_definition_id,
             )
-            selected_versions = (
-                self.metric_definition_version_repository
-                .find_latest_compatible_versions(
-                    event_type_id=event_type_id,
-                    schema_definition_id=schema_definition_id,
-                )
+            selected_versions = self.metric_definition_version_repository.find_latest_compatible_versions(
+                event_type_id=event_type_id,
+                schema_definition_id=schema_definition_id,
             )
             prepared = self.processing_chain_builder_service.prepare_chain(
                 event_type_id=event_type_id,
                 schema_definition=locked_schema,
                 metric_definition_versions=selected_versions,
+            )
+            self._require_safe_cardinality(
+                event_type_id=event_type_id,
+                schema_definition=locked_schema,
+                candidate_plans=[plan.compiled_plan_json for plan in prepared.plans],
             )
             current_active = self.processing_chain_repository.find_active(
                 event_type_id=event_type_id,
@@ -132,6 +141,7 @@ class ProcessingChainActivationService:
     ) -> ProcessingChain:
         """Atomically activate one complete DRAFT candidate."""
         try:
+            self._lock_event_type(event_type_id)
             schema_definition = self.schema_repository.find_by_id(
                 schema_definition_id,
                 for_update=True,
@@ -141,9 +151,7 @@ class ProcessingChainActivationService:
                 event_type_id=event_type_id,
                 schema_definition_id=schema_definition_id,
             )
-            chain = self.processing_chain_repository.find_by_id(
-                processing_chain_id
-            )
+            chain = self.processing_chain_repository.find_by_id(processing_chain_id)
             if chain is None:
                 raise ProcessingChainNotFoundError(
                     f"ProcessingChain {processing_chain_id} not found"
@@ -166,27 +174,22 @@ class ProcessingChainActivationService:
 
             plans = self.processing_plan_repository.list_by_chain_id(chain.id)
             if not plans or any(
-                not plan.is_active or plan.compiled_plan_json is None
-                for plan in plans
+                not plan.is_active or plan.compiled_plan_json is None for plan in plans
             ):
                 raise ProcessingChainIncompleteError(
                     f"ProcessingChain {chain.id} has incomplete ProcessingPlans"
                 )
-            metric_versions = (
-                self.metric_definition_version_repository.find_by_ids(
-                    [plan.metric_definition_version_id for plan in plans]
-                )
+            metric_versions = self.metric_definition_version_repository.find_by_ids(
+                [plan.metric_definition_version_id for plan in plans]
             )
             if len(metric_versions) != len(plans):
                 raise ProcessingChainIncompleteError(
                     f"ProcessingChain {chain.id} references missing metric versions"
                 )
-            canonical_snapshot = (
-                self.processing_chain_builder_service.prepare_chain(
-                    event_type_id=event_type_id,
-                    schema_definition=schema_definition,
-                    metric_definition_versions=metric_versions,
-                )
+            canonical_snapshot = self.processing_chain_builder_service.prepare_chain(
+                event_type_id=event_type_id,
+                schema_definition=schema_definition,
+                metric_definition_versions=metric_versions,
             )
             if not self.processing_chain_builder_service.matches_complete_snapshot(
                 chain.id,
@@ -195,6 +198,12 @@ class ProcessingChainActivationService:
                 raise ProcessingChainIncompleteError(
                     f"ProcessingChain {chain.id} does not match its canonical plans"
                 )
+
+            self._require_safe_cardinality(
+                event_type_id=event_type_id,
+                schema_definition=schema_definition,
+                candidate_plans=[plan.compiled_plan_json for plan in plans],
+            )
 
             if chain.is_active:
                 self.db.commit()
@@ -271,6 +280,73 @@ class ProcessingChainActivationService:
             ):
                 return chain
         return None
+
+    def _lock_event_type(self, event_type_id: int) -> None:
+        """Serialize budget decisions per EventType, never globally."""
+        if self.event_type_repository is None:
+            return
+        event_type = self.event_type_repository.find_by_id(
+            event_type_id, for_update=True
+        )
+        if event_type is None:
+            raise MetricConfigurationNotFoundError(
+                f"EventType {event_type_id} not found"
+            )
+
+    def _require_safe_cardinality(
+        self,
+        *,
+        event_type_id: int,
+        schema_definition,
+        candidate_plans: list[dict],
+    ) -> None:
+        """Revalidate the exact projected snapshot before persistence/activation."""
+        if self.cardinality_service is None:
+            return
+        current: list[CardinalityPlan] = []
+        replaced: list[CardinalityPlan] = []
+        for active in self.processing_chain_repository.list_active_by_event_type(
+            event_type_id
+        ):
+            active_schema = self.schema_repository.find_by_id(
+                active.schema_definition_id
+            )
+            if active_schema is None:
+                raise ProcessingChainIncompleteError(
+                    f"ProcessingChain {active.id} references a missing schema"
+                )
+            for plan in self.processing_plan_repository.list_active_by_chain_id(
+                active.id
+            ):
+                if not isinstance(plan.compiled_plan_json, dict):
+                    raise ProcessingChainIncompleteError(
+                        f"ProcessingChain {active.id} has an incomplete plan"
+                    )
+                entry = CardinalityPlan(
+                    compiled_plan_json=plan.compiled_plan_json,
+                    schema_definition_id=active_schema.id,
+                    json_schema=active_schema.json_schema,
+                )
+                current.append(entry)
+                if active.schema_definition_id == schema_definition.id:
+                    replaced.append(entry)
+        assessment = self.cardinality_service.assess(
+            current_plans=current,
+            candidate_plans=[
+                CardinalityPlan(
+                    compiled_plan_json=plan,
+                    schema_definition_id=schema_definition.id,
+                    json_schema=schema_definition.json_schema,
+                )
+                for plan in candidate_plans
+            ],
+            replaced_plans=replaced,
+        )
+        if assessment.decision is CardinalityDecision.ERROR:
+            diagnostic = assessment.errors[0]
+            raise ProcessingChainConflictError(
+                f"{diagnostic.code}: {diagnostic.message}"
+            )
 
     @staticmethod
     def _validate_schema_scope(

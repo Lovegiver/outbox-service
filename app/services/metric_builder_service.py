@@ -31,9 +31,13 @@ from app.repositories.metric_definition_version_repository import (
 from app.repositories.metric_definition_version_schema_repository import (
     MetricDefinitionVersionSchemaRepository,
 )
+from app.repositories.processing_chain_repository import ProcessingChainRepository
+from app.repositories.processing_plan_repository import ProcessingPlanRepository
 from app.repositories.schema_repository import SchemaRepository
 from app.services.metric_builder_errors import (
     MetricBuilderAlreadyExistsError,
+    MetricBuilderCardinalityBudgetError,
+    MetricBuilderCardinalityUnboundedError,
     MetricBuilderContractError,
     MetricBuilderCreationConflictError,
     MetricBuilderError,
@@ -50,6 +54,12 @@ from app.services.metric_builder_schema_analyzer import (
     MetricBuilderSchemaAnalyzer,
     SchemaAnalysisStatus,
 )
+from app.services.metric_cardinality_service import (
+    CardinalityAssessment,
+    CardinalityDecision,
+    CardinalityPlan,
+    MetricCardinalityService,
+)
 from app.services.metric_yaml_service import MetricYamlCompilation, MetricYamlService
 
 
@@ -63,6 +73,7 @@ class BuilderPreview:
     yaml_content: Optional[str]
     compiled_plan_json: Optional[dict[str, Any]]
     prometheus_metric_name: Optional[str]
+    safeguards: Optional[CardinalityAssessment]
 
 
 @dataclass(frozen=True)
@@ -78,6 +89,7 @@ class BuilderCreateResult:
     prometheus_metric_name: str
     created: bool
     warnings: list[str]
+    safeguards: Optional[CardinalityAssessment]
 
 
 @dataclass(frozen=True)
@@ -117,6 +129,9 @@ class MetricBuilderService:
         metric_yaml_service: MetricYamlService,
         schema_analyzer: MetricBuilderSchemaAnalyzer,
         limits: MetricBuilderAnalysisLimits,
+        processing_chain_repository: Optional[ProcessingChainRepository] = None,
+        processing_plan_repository: Optional[ProcessingPlanRepository] = None,
+        cardinality_service: Optional[MetricCardinalityService] = None,
     ) -> None:
         """Initialize the Builder with read and canonical compilation services."""
         self.db = db
@@ -128,6 +143,12 @@ class MetricBuilderService:
         self.metric_yaml_service = metric_yaml_service
         self.schema_analyzer = schema_analyzer
         self.limits = limits
+        self.processing_chain_repository = processing_chain_repository
+        self.processing_plan_repository = processing_plan_repository
+        self.cardinality_service = cardinality_service or MetricCardinalityService(
+            schema_analyzer,
+            limits,
+        )
 
     def list_schema_fields(
         self,
@@ -160,13 +181,18 @@ class MetricBuilderService:
                 labels=labels,
                 schema_definition_id=schema_definition_id,
             )
+            safeguards = self._assess_candidate(
+                event_type_id=event_type_id,
+                prepared=prepared,
+            )
             return BuilderPreview(
-                valid=True,
-                errors=[],
-                warnings=[],
+                valid=safeguards.accepted,
+                errors=[item.message for item in safeguards.errors],
+                warnings=[item.message for item in safeguards.warnings],
                 yaml_content=prepared.yaml_content,
                 compiled_plan_json=prepared.compilation.compiled_plan_json,
                 prometheus_metric_name=prepared.prometheus_metric_name,
+                safeguards=safeguards,
             )
         except (
             MetricBuilderContractError,
@@ -188,6 +214,7 @@ class MetricBuilderService:
                 yaml_content=None,
                 compiled_plan_json=None,
                 prometheus_metric_name=None,
+                safeguards=None,
             )
 
     def create_metric_from_builder(
@@ -221,11 +248,16 @@ class MetricBuilderService:
                 lock_schema=True,
                 allow_existing_code=True,
             )
-
             existing = self.metric_definition_repository.find_by_event_type_and_code(
                 event_type_id=event_type_id,
                 code=code,
             )
+            safeguards = self._assess_candidate(
+                event_type_id=event_type_id,
+                prepared=prepared,
+                replacing_metric_code=code if existing is not None else None,
+            )
+            self._require_safe_cardinality(safeguards)
             if existing is not None:
                 result = self._reuse_identical_creation(
                     existing=existing,
@@ -235,7 +267,9 @@ class MetricBuilderService:
                     yaml_version_label=yaml_version_label,
                 )
                 self.db.commit()
-                return result
+                return BuilderCreateResult(
+                    **{**result.__dict__, "safeguards": safeguards}
+                )
 
             metric_definition = self.metric_definition_repository.add(
                 MetricDefinition(
@@ -271,7 +305,8 @@ class MetricBuilderService:
                 compiled_plan_json=prepared.compilation.compiled_plan_json,
                 prometheus_metric_name=prepared.prometheus_metric_name,
                 created=True,
-                warnings=[],
+                warnings=[item.message for item in safeguards.warnings],
+                safeguards=safeguards,
             )
         except IntegrityError as exc:
             self.db.rollback()
@@ -388,7 +423,76 @@ class MetricBuilderService:
             prometheus_metric_name=prepared.prometheus_metric_name,
             created=False,
             warnings=[],
+            safeguards=None,
         )
+
+    def _assess_candidate(
+        self,
+        *,
+        event_type_id: int,
+        prepared: _PreparedBuilderMetric,
+        replacing_metric_code: Optional[str] = None,
+    ) -> CardinalityAssessment:
+        """Estimate a candidate plus the active EventType snapshot, read-only."""
+        candidate = CardinalityPlan(
+            compiled_plan_json=prepared.compilation.compiled_plan_json,
+            schema_definition_id=prepared.schema_definition.id,
+            json_schema=prepared.schema_definition.json_schema,
+        )
+        current: list[CardinalityPlan] = []
+        replaced: list[CardinalityPlan] = []
+        if (
+            self.processing_chain_repository is not None
+            and self.processing_plan_repository is not None
+        ):
+            for chain in self.processing_chain_repository.list_active_by_event_type(
+                event_type_id
+            ):
+                schema = self.schema_repository.find_by_id(chain.schema_definition_id)
+                if schema is None:
+                    continue
+                for plan in self.processing_plan_repository.list_active_by_chain_id(
+                    chain.id
+                ):
+                    if isinstance(plan.compiled_plan_json, dict):
+                        entry = CardinalityPlan(
+                            compiled_plan_json=plan.compiled_plan_json,
+                            schema_definition_id=schema.id,
+                            json_schema=schema.json_schema,
+                        )
+                        current.append(entry)
+                        if (
+                            replacing_metric_code is not None
+                            and self._plan_has_metric_code(
+                                entry.compiled_plan_json, replacing_metric_code
+                            )
+                        ):
+                            replaced.append(entry)
+        return self.cardinality_service.assess(
+            current_plans=current,
+            candidate_plans=[candidate],
+            replaced_plans=replaced,
+        )
+
+    @staticmethod
+    def _plan_has_metric_code(plan: dict[str, Any], metric_code: str) -> bool:
+        """Return whether one historical plan belongs to a replaced metric code."""
+        observations = plan.get("observations", [])
+        return isinstance(observations, list) and any(
+            isinstance(item, dict) and item.get("metric_code") == metric_code
+            for item in observations
+        )
+
+    @staticmethod
+    def _require_safe_cardinality(assessment: CardinalityAssessment) -> None:
+        """Translate static safety diagnostics into narrow create errors."""
+        if assessment.decision is not CardinalityDecision.ERROR:
+            return
+        codes = {item.code for item in assessment.errors}
+        message = assessment.errors[0].message
+        if "BUILDER_CARDINALITY_BUDGET_EXCEEDED" in codes:
+            raise MetricBuilderCardinalityBudgetError(message)
+        raise MetricBuilderCardinalityUnboundedError(message)
 
     def _analyze(self, schema: dict[str, Any]) -> list[AnalyzedBuilderField]:
         """Translate bounded-analysis errors into one public Builder error."""

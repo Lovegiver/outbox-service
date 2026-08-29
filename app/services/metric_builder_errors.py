@@ -46,6 +46,18 @@ class MetricBuilderUnsafeError(MetricBuilderError):
     code = "BUILDER_COUNTER_UNSAFE"
 
 
+class MetricBuilderCardinalityBudgetError(MetricBuilderUnsafeError):
+    """Raised when an EventType snapshot exceeds its static series budget."""
+
+    code = "BUILDER_CARDINALITY_BUDGET_EXCEEDED"
+
+
+class MetricBuilderCardinalityUnboundedError(MetricBuilderUnsafeError):
+    """Raised when a requested static series bound cannot be demonstrated."""
+
+    code = "BUILDER_CARDINALITY_UNBOUNDED"
+
+
 class MetricBuilderNameCollisionError(MetricBuilderError):
     """Raised when distinct metric codes normalize to the same series name."""
 

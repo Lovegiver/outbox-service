@@ -42,6 +42,8 @@ class MetricBuilderSchemaField(_StrictBuilderModel):
     label_rejection_reason: Optional[str] = None
     value_intents: list[str] = Field(default_factory=list)
     cardinality_risk: str
+    label_cardinality: Optional[int] = None
+    label_cardinality_source: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -133,6 +135,7 @@ class MetricBuilderPreviewResponse(_StrictBuilderModel):
     yaml_content: Optional[str] = None
     compiled_plan_json: Optional[dict] = None
     prometheus_metric_name: Optional[str] = None
+    safeguards: Optional[dict] = None
 
 
 class MetricBuilderCreateRequest(MetricBuilderPreviewRequest):
@@ -160,3 +163,4 @@ class MetricBuilderCreateResponse(_StrictBuilderModel):
     compiled_plan_json: dict
     created: bool
     warnings: list[str] = Field(default_factory=list)
+    safeguards: Optional[dict] = None

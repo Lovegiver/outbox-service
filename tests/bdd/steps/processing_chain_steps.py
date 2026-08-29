@@ -59,23 +59,23 @@ SCHEMA_SHAPES = {
     "complete sales": {
         "type": "object",
         "properties": {
-            "amount": {"type": "number"},
-            "country": {"type": "string"},
-            "discount": {"type": "number"},
+            "amount": {"type": "number", "minimum": 0},
+            "country": {"type": "string", "enum": ["FR", "US"]},
+            "discount": {"type": "number", "minimum": 0},
         },
         "required": ["amount", "country"],
     },
     "sales without country": {
         "type": "object",
-        "properties": {"amount": {"type": "number"}},
+        "properties": {"amount": {"type": "number", "minimum": 0}},
         "required": ["amount"],
     },
     "optional discount": {
         "type": "object",
         "properties": {
-            "amount": {"type": "number"},
-            "country": {"type": "string"},
-            "discount": {"type": "number"},
+            "amount": {"type": "number", "minimum": 0},
+            "country": {"type": "string", "enum": ["FR", "US"]},
+            "discount": {"type": "number", "minimum": 0},
         },
         "required": ["amount", "country"],
     },

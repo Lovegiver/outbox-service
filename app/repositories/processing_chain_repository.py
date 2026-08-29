@@ -55,6 +55,19 @@ class ProcessingChainRepository:
         )
         return list(self.db.execute(statement).scalars().all())
 
+    def list_active_by_event_type(self, event_type_id: int) -> list[ProcessingChain]:
+        """Return active snapshots for every exact schema of one EventType."""
+        statement = (
+            select(ProcessingChain)
+            .where(
+                ProcessingChain.event_type_id == event_type_id,
+                ProcessingChain.is_active.is_(True),
+                ProcessingChain.status == "ACTIVE",
+            )
+            .order_by(ProcessingChain.schema_definition_id.asc(), ProcessingChain.id.asc())
+        )
+        return list(self.db.execute(statement).scalars().all())
+
     def find_next_version_number(
         self,
         event_type_id: int,

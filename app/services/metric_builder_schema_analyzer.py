@@ -28,6 +28,9 @@ class MetricBuilderAnalysisLimits:
     max_schema_depth: int = 32
     max_schema_fields: int = 1000
     max_label_name_length: int = 128
+    event_type_series_budget: int = 200
+    event_type_series_warning: int = 160
+    max_metric_series_estimate: int = 1_000_000
 
 
 @dataclass(frozen=True)
@@ -44,6 +47,8 @@ class AnalyzedBuilderField:
     label_rejection_reason: Optional[str]
     value_intents: tuple[str, ...]
     cardinality_risk: str
+    label_cardinality: Optional[int]
+    label_cardinality_source: Optional[str]
     warnings: tuple[str, ...]
 
 
@@ -255,11 +260,14 @@ class MetricBuilderSchemaAnalyzer:
             status = SchemaAnalysisStatus.UNSAFE
             reason = f"No Counter intent supports JSON type '{json_type}'"
 
-        label_allowed, rejection, risk = self._label_decision(
-            path=path,
-            json_type=json_type,
-            nullable=nullable or ancestor_nullable,
-            schema=schema,
+        label_allowed, rejection, risk, cardinality, cardinality_source = (
+            self._label_decision(
+                path=path,
+                json_type=json_type,
+                required=required,
+                nullable=nullable or ancestor_nullable,
+                schema=schema,
+            )
         )
         warnings: tuple[str, ...] = ()
         if not label_allowed and rejection is not None:
@@ -276,6 +284,8 @@ class MetricBuilderSchemaAnalyzer:
             label_rejection_reason=rejection,
             value_intents=value_intents,
             cardinality_risk=risk,
+            label_cardinality=cardinality,
+            label_cardinality_source=cardinality_source,
             warnings=warnings,
         )
 
@@ -297,6 +307,8 @@ class MetricBuilderSchemaAnalyzer:
             label_rejection_reason=reason,
             value_intents=(),
             cardinality_risk="unknown",
+            label_cardinality=None,
+            label_cardinality_source=None,
             warnings=(reason,),
         )
 
@@ -343,14 +355,14 @@ class MetricBuilderSchemaAnalyzer:
         *,
         path: str,
         json_type: str,
+        required: bool,
         nullable: bool,
         schema: dict[str, Any],
-    ) -> tuple[bool, Optional[str], str]:
+    ) -> tuple[bool, Optional[str], str, Optional[int], Optional[str]]:
         """Apply the initial deterministic cardinality policy."""
-        del nullable  # Nullability changes runtime absence, not cardinality proof.
         tail = path.replace("[*]", "").split(".")[-1]
         if _HIGH_CARDINALITY_NAME.search(tail):
-            return False, "Field name indicates high cardinality", "high"
+            return False, "Field name indicates high cardinality", "high", None, None
         if schema.get("format") in {
             "uuid",
             "email",
@@ -360,14 +372,12 @@ class MetricBuilderSchemaAnalyzer:
             "date-time",
             "time",
         }:
-            return False, "Field format indicates high cardinality", "high"
-        if json_type == "boolean":
-            return True, None, "low"
+            return False, "Field format indicates high cardinality", "high", None, None
 
         enum = schema.get("enum")
         if enum is not None:
             if not isinstance(enum, list):
-                return False, "Enum must be an array", "unknown"
+                return False, "Enum must be an array", "unknown", None, None
             if len(enum) > self.limits.max_enum_values:
                 return (
                     False,
@@ -376,6 +386,8 @@ class MetricBuilderSchemaAnalyzer:
                         f"{self.limits.max_enum_values}"
                     ),
                     "high",
+                    None,
+                    None,
                 )
             if not enum or any(
                 value is None
@@ -384,12 +396,79 @@ class MetricBuilderSchemaAnalyzer:
                 or (isinstance(value, float) and not math.isfinite(value))
                 for value in enum
             ):
-                return False, "Enum contains a non-scalar label value", "high"
-            return True, None, "low"
+                return (
+                    False,
+                    "Enum contains a non-scalar label value",
+                    "high",
+                    None,
+                    None,
+                )
+            return self._bounded_label_decision(
+                base_cardinality=len(enum),
+                required=required,
+                nullable=nullable,
+                source="enum",
+            )
+
+        if "const" in schema:
+            value = schema["const"]
+            if (
+                value is None
+                or isinstance(value, (dict, list))
+                or not isinstance(value, (str, int, float, bool))
+                or (isinstance(value, float) and not math.isfinite(value))
+            ):
+                return (
+                    False,
+                    "Const must contain one finite scalar label value",
+                    "high",
+                    None,
+                    None,
+                )
+            return self._bounded_label_decision(
+                base_cardinality=1,
+                required=required,
+                nullable=nullable,
+                source="const",
+            )
+
+        if json_type == "boolean":
+            return self._bounded_label_decision(
+                base_cardinality=2,
+                required=required,
+                nullable=nullable,
+                source="boolean",
+            )
 
         if json_type in _SCALAR_TYPES:
-            return False, "Free scalar values are not safe Builder labels", "high"
-        return False, f"JSON type '{json_type}' cannot be a label", "high"
+            return (
+                False,
+                "Free scalar values are not safe Builder labels",
+                "high",
+                None,
+                None,
+            )
+        return (
+            False,
+            f"JSON type '{json_type}' cannot be a label",
+            "high",
+            None,
+            None,
+        )
+
+    @staticmethod
+    def _bounded_label_decision(
+        *,
+        base_cardinality: int,
+        required: bool,
+        nullable: bool,
+        source: str,
+    ) -> tuple[bool, Optional[str], str, int, str]:
+        """Return a finite label domain including one omitted-label identity."""
+        omission = not required or nullable
+        cardinality = base_cardinality + int(omission)
+        suffix = "+ omitted" if omission else ""
+        return True, None, "low", cardinality, f"{source}{suffix}"
 
     def _validate_path_bounds(self, path: str) -> None:
         """Reject paths that exceed configured parser resource bounds."""
