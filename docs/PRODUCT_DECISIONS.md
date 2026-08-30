@@ -43,6 +43,16 @@ des paramètres d'exploitation configurables.
 - La désactivation est idempotente. Une nouvelle demande retourne le Project
   toujours inactif et signale qu'il était déjà désactivé.
 - Un Project inactif reste lisible.
+- La consultation ciblée utilise `GET /api/admin/projects/{project_id}` et
+  conserve les mêmes règles `project:read` que le listing.
+- La modification utilise un PATCH partiel limité au nom et à la description.
+  Un champ absent reste inchangé, `description: null` efface la description et
+  un nom nul ou vide est refusé. Le statut reste géré par les actions lifecycle.
+- La réactivation est une action explicite et idempotente via
+  `PATCH /api/admin/projects/{project_id}/enable`. Elle restaure uniquement
+  `is_active` et conserve toutes les relations existantes.
+- Les transitions de lifecycle sont `ACTIVE ↔ DISABLED`. La suppression
+  physique nécessite une décision produit séparée.
 - Aucun membre, API Key, EventType, Schema ou Route ne peut y être ajouté.
 - Sa désactivation révoque transactionnellement toutes ses API Keys.
 
