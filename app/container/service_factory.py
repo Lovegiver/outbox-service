@@ -43,10 +43,10 @@ from app.services.metric_builder_schema_analyzer import (
     MetricBuilderAnalysisLimits,
     MetricBuilderSchemaAnalyzer,
 )
-from app.services.metric_cardinality_service import MetricCardinalityService
 from app.services.metric_builder_service import (
     MetricBuilderService,
 )
+from app.services.metric_cardinality_service import MetricCardinalityService
 from app.services.metric_definition_admin_service import (
     MetricDefinitionAdminService,
 )
@@ -120,6 +120,7 @@ class ServiceFactory:
         project_member_repository = ProjectMemberRepository(db)
 
         return ProjectService(
+            db=db,
             project_repository=project_repository,
             project_member_repository=project_member_repository,
         )

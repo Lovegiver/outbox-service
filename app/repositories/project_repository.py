@@ -1,18 +1,17 @@
+from typing import Optional
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
 from app.models.project import Project
 from app.models.project_member import ProjectMember
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 
 class ProjectRepository:
-
     def __init__(self, db: Session):
         self.db = db
 
-    def create(
-        self,
-        project: Project
-    ) -> Project:
+    def create(self, project: Project) -> Project:
 
         self.db.add(project)
         self.db.flush()
@@ -20,79 +19,67 @@ class ProjectRepository:
 
         return project
 
-    def find_by_id(
+    def find_by_id(self, project_id: int) -> Optional[Project]:
+
+        statement = select(Project).where(Project.id == project_id)
+
+        return self.db.execute(statement).scalar_one_or_none()
+
+    def find_by_id_for_update(
         self,
-        project_id: int
-    ) -> Project | None:
+        project_id: int,
+    ) -> Optional[Project]:
+        statement = select(Project).where(Project.id == project_id).with_for_update()
 
-        statement = (
-            select(Project)
-            .where(Project.id == project_id)
-        )
-
-        return self.db.execute(
-            statement
-        ).scalar_one_or_none()
+        return self.db.execute(statement).scalar_one_or_none()
 
     def find_by_name(
         self,
-        name: str
-    ) -> Project | None:
+        name: str,
+        exclude_project_id: Optional[int] = None,
+    ) -> Optional[Project]:
 
-        statement = (
-            select(Project)
-            .where(Project.name == name)
-        )
+        statement = select(Project).where(func.lower(Project.name) == name.lower())
 
-        return self.db.execute(
-            statement
-        ).scalar_one_or_none()
+        if exclude_project_id is not None:
+            statement = statement.where(Project.id != exclude_project_id)
 
-    def list_all(
-        self
-    ) -> list[Project]:
+        return self.db.execute(statement).scalar_one_or_none()
 
-        statement = (
-            select(Project)
-            .order_by(Project.id)
-        )
+    def list_all(self) -> list[Project]:
 
-        return list(
-            self.db.execute(
-                statement
-            ).scalars().all()
-        )
+        statement = select(Project).order_by(Project.id)
 
-    def update(
-        self,
-        project: Project
-    ) -> Project:
+        return list(self.db.execute(statement).scalars().all())
+
+    def update(self, project: Project) -> Project:
 
         self.db.flush()
         self.db.refresh(project)
 
         return project
 
-    def disable(
-        self,
-        project: Project
-    ) -> Project:
+    def disable(self, project: Project) -> Project:
 
         project.is_active = False
 
         return self.update(project)
 
-    def delete(
+    def enable(
         self,
-        project: Project
-    ) -> None:
+        project: Project,
+    ) -> Project:
+        project.is_active = True
+        return self.update(project)
+
+    def delete(self, project: Project) -> None:
 
         self.db.delete(project)
         self.db.flush()
 
     def list_by_user_id(
-            self,
-            user_id: int,
+        self,
+        user_id: int,
     ) -> list[Project]:
 
         statement = (
@@ -107,8 +94,4 @@ class ProjectRepository:
             .order_by(Project.id)
         )
 
-        return list(
-            self.db.execute(
-                statement
-            ).scalars().all()
-        )
+        return list(self.db.execute(statement).scalars().all())
