@@ -113,7 +113,13 @@ Couvert :
 - rejet du nom de Project duplique ;
 - listing limite aux Projects visibles par l'utilisateur ;
 - listing global par admin ;
+- consultation individuelle active ou desactivee selon les permissions ;
+- modification partielle du nom et de la description ;
+- effacement explicite de la description sans ecraser les champs absents ;
+- rejet des payloads vides et des conflits de nom sans etat partiel ;
 - desactivation de Project par utilisateur autorise ;
+- reactivation idempotente par OWNER ou ADMIN ;
+- conservation des membres et EventTypes pendant le cycle de statut ;
 - rejet de desactivation sans `PROJECT_WRITE` ;
 - rejet de desactivation d'un Project inexistant.
 

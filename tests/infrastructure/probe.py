@@ -125,6 +125,45 @@ class ProjectProbe(BaseProbe):
             name=str(row["name"]),
         )
 
+    def get_details_by_name(self, name: str) -> dict[str, Any]:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT id, name, description, is_active
+                FROM outbox.project
+                WHERE name = :name
+                """
+            ),
+            {"name": name},
+        )
+        return dict(result.mappings().one())
+
+    def count_members(self, project_id: int) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM outbox.project_member
+                WHERE project_id = :project_id
+                """
+            ),
+            {"project_id": project_id},
+        )
+        return int(result.scalar_one())
+
+    def count_event_types(self, project_id: int) -> int:
+        result = self.connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM outbox.event_type
+                WHERE project_id = :project_id
+                """
+            ),
+            {"project_id": project_id},
+        )
+        return int(result.scalar_one())
+
 
 class UserAccountProbe(BaseProbe):
     def __init__(self, connection: Connection):
@@ -1155,7 +1194,7 @@ class MetricProcessingExecutionProbe(BaseProbe):
     def __init__(self, connection: Connection):
         super().__init__(connection, "metric_processing_execution")
 
-    def get_by_event_id(self, event_id: int) -> dict[str, Any] | None:
+    def get_by_event_id(self, event_id: int) -> Optional[dict[str, Any]]:
         result = (
             self.connection.execute(
                 text(
