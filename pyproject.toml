@@ -1,7 +1,7 @@
 [project]
 name = "outbox"
 version = "0.1.0"
-description = "Add your description here"
+description = "Event ingestion, routing, delivery and operational observability service"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
