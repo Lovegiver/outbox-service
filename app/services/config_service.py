@@ -161,7 +161,9 @@ class ConfigService:
         )
 
     def get_database_url(self) -> str:
-        database_url = self.config.get("database", {}).get("url")
+        database_url = os.getenv("OUTBOX_DATABASE_URL") or (
+            self.config.get("database", {}).get("url")
+        )
 
         if not database_url:
             raise RuntimeError("database.url is required in application configuration.")
