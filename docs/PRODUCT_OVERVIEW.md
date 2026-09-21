@@ -69,6 +69,30 @@ Une Dead Letter est une EventDelivery ayant atteint un echec terminal de livrais
 
 Les Dead Letters restent visibles via l'API d'administration. Les utilisateurs autorises peuvent relancer une dead letter ou relancer toutes les dead letters d'un projet. Le retry remet la delivery dans un etat retraitable au lieu de masquer l'echec.
 
+### Logs applicatifs recus comme Events
+
+Le meme ingress peut aussi accueillir des logs structures provenant d'applications
+tierces : un log est un Event d'observation. Le producteur le publie sous un
+EventType et un JSON Schema adaptes ; OB1 le valide et le persiste. Si aucune
+Route sortante n'est configuree pour cet EventType, il n'est pas remis a un
+consommateur. Cette absence de reemission distingue l'usage de centralisation
+des logs du parcours evenementiel de livraison, sans exiger un second mecanisme
+d'ingestion.
+
+Ce cas d'usage releve de l'observabilite : il peut permettre de regrouper des
+faits et des causes de diagnostic, de les correler et d'en extraire des
+observations ou metriques bornees. Il ne dispense pas les applications de
+produire elles-memes les details utiles et de propager les identifiants de
+correlation. Les regles d'acces, de retention, de volume, de donnees sensibles
+et de consultation doivent etre definies avant une mise en service de collecte
+de logs tiers.
+
+Cette possibilite de conception ne declare pas OB1 collecteur de logs deploye
+ni remplacement d'une pile specialisee d'ingestion, recherche et visualisation
+comme Alloy, Loki et Grafana. Le backend d'ingestion d'Events fonctionne ;
+l'IHM de consultation des logs et le pipeline d'observabilite tiers restent a
+specifier et a verifier selon le cas d'usage.
+
 ### Metriques et Observabilite
 
 OB1 contient deux familles de metriques.
